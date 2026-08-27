@@ -1,164 +1,349 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { dummyProfileData } from "../assets/assets";
 import {
-  CalendarIcon,
-  ChevronRightIcon,
-  DollarSignIcon,
-  FileTextIcon,
-  LayoutGridIcon,
-  Loader2,
-  LogOutIcon,
-  MenuIcon,
-  SettingsIcon,
-  UserIcon,
-  XIcon,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Boxes,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  FileBarChart,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Package,
+  RotateCcw,
+  Settings,
+  ShoppingCart,
+  SlidersHorizontal,
+  Tags,
+  Truck,
+  Users,
+  X,
 } from "lucide-react";
+
 import { useAuth } from "../context/AuthContext";
-import api from "../api/axios.js";
 
 const Sidebar = () => {
   const { pathname } = useLocation();
-  const [userName, setUserName] = useState("");
+  const { user, logout } = useAuth();
+
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { user, loading, logout } = useAuth();
+  const [openMenus, setOpenMenus] = useState({
+    inventory: true,
+    stock: true,
+    procurement: true,
+    college: true,
+    administration: true,
+  });
 
-  useEffect(() => {
-    api.get("/profile").then(({ data }) => {
-      if (data.firstName)
-        setUserName(`${data.firstName} ${data.lastName || ""}`.trim());
-    });
-  }, []);
-
+  // Close mobile sidebar whenever route changes
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  const role = user?.role;
-  const navItems = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutGridIcon },
-    role === "ADMIN"
-      ? { name: "Employees", href: "/employees", icon: UserIcon }
-      : { name: "Attendance", href: "/attendence", icon: CalendarIcon },
-    { name: "Leave", href: "/leave", icon: FileTextIcon },
-    { name: "Payslips", href: "/payslips", icon: DollarSignIcon },
-    { name: "Settings", href: "/settings", icon: SettingsIcon },
-  ];
+  const toggleMenu = (menu) => {
+    setOpenMenus((prev) => ({
+      ...prev,
+      [menu]: !prev[menu],
+    }));
+  };
+
+  const isActive = (href) => {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
   const handleLogout = () => {
     logout();
     window.location.href = "/login";
   };
 
+  const menuGroups = [
+    {
+      title: "Main",
+      items: [
+        {
+          name: "Dashboard",
+          href: "/dashboard",
+          icon: LayoutDashboard,
+        },
+      ],
+    },
+
+    {
+      title: "Inventory",
+      key: "inventory",
+      items: [
+        {
+          name: "Items",
+          href: "/inventory",
+          icon: Package,
+        },
+        {
+          name: "Categories",
+          href: "/categories",
+          icon: Tags,
+        },
+      ],
+    },
+
+    {
+      title: "Stock Management",
+      key: "stock",
+      items: [
+        {
+          name: "Stock In",
+          href: "/stock/in",
+          icon: ArrowDownToLine,
+        },
+        {
+          name: "Stock Out",
+          href: "/stock/out",
+          icon: ArrowUpFromLine,
+        },
+        {
+          name: "Returns",
+          href: "/stock/returns",
+          icon: RotateCcw,
+        },
+        {
+          name: "Adjustments",
+          href: "/stock/adjustments",
+          icon: SlidersHorizontal,
+        },
+      ],
+    },
+
+    {
+      title: "Procurement",
+      key: "procurement",
+      items: [
+        {
+          name: "Purchases",
+          href: "/purchases",
+          icon: ShoppingCart,
+        },
+        {
+          name: "Suppliers",
+          href: "/suppliers",
+          icon: Truck,
+        },
+      ],
+    },
+
+    {
+      title: "College",
+      key: "college",
+      items: [
+        {
+          name: "Departments",
+          href: "/departments",
+          icon: Building2,
+        },
+        {
+          name: "Item Requests",
+          href: "/requests",
+          icon: ClipboardList,
+        },
+      ],
+    },
+
+    {
+      title: "Analytics",
+      items: [
+        {
+          name: "Reports",
+          href: "/reports",
+          icon: FileBarChart,
+        },
+      ],
+    },
+
+    {
+      title: "Administration",
+      key: "administration",
+      items: [
+        {
+          name: "Users",
+          href: "/users",
+          icon: Users,
+        },
+        {
+          name: "Settings",
+          href: "/settings",
+          icon: Settings,
+        },
+      ],
+    },
+  ];
+
   const sidebarContent = (
     <>
-      {/* HEADER */}
-      <div className="px-5 pt-6 pb-5 border-b border-white/10">
+      {/* =====================================================
+          HEADER
+      ====================================================== */}
+      <div className="px-5 py-5 border-b border-white/10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <UserIcon className="text-white size-7" />
-            <div>
-              <p className="font-semibold text-[13px] text-white tracking-wide">
-                Employee MS
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Logo */}
+            <div className="w-9 h-9 rounded-lg bg-indigo-500 flex items-center justify-center shrink-0 shadow-sm">
+              <Boxes className="w-5 h-5 text-white" />
+            </div>
+
+            {/* College Name */}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white leading-5">
+                Government First Grade College
               </p>
-              <p className="text-[11px] text-slate-400 font-medium">
-                Management System
+
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Raichur · Inventory System
               </p>
             </div>
           </div>
 
+          {/* Mobile Close */}
           <button
+            type="button"
             onClick={() => setMobileOpen(false)}
-            className="lg:hidden text-slate-400 hover:text-white p-1"
+            aria-label="Close menu"
+            className="lg:hidden text-slate-400 hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors"
           >
-            <XIcon size={20} />
+            <X className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* USER CARD */}
-      {userName && (
-        <div className="mx-3 mt-4 mb-2 p-3 rounded-lg bg-white/5 border border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center ring-1 ring-white/10 shrink-0">
-              <span className="text-slate-300 text-xs font-semibold">
-                {userName.charAt(0).toUpperCase()}
-              </span>
-            </div>
+      {/* =====================================================
+          USER CARD
+      ====================================================== */}
+      <div className="mx-3 mt-4 mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
+        <div className="flex items-center gap-3">
+          {/* Avatar */}
+          <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center ring-1 ring-white/10 shrink-0">
+            <span className="text-slate-300 text-xs font-semibold">
+              {user?.name?.charAt(0)?.toUpperCase() || "A"}
+            </span>
+          </div>
 
-            <div className="min-w-0">
-              <p className="text-[13px] font-medium text-slate-200 truncate">
-                {userName}
-              </p>
-              <p className="text-[11px] text-slate-500 truncate">
-                {role === "ADMIN" ? "Administrator" : "Employee"}
-              </p>
-            </div>
+          {/* User Info */}
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium text-slate-200 truncate">
+              {user?.name || "Administrator"}
+            </p>
+
+            <p className="text-[11px] text-slate-500 truncate capitalize">
+              {user?.role?.toLowerCase() || "administrator"}
+            </p>
           </div>
         </div>
-      )}
-
-      {/* NAV TITLE */}
-      <div className="px-5 pt-5 pb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          Navigation
-        </p>
       </div>
 
-      {/* NAV ITEMS */}
-      <div className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {loading ? (
-          <div className="px-3 py-3 flex items-center gap-2 text-slate-500">
-            <Loader2 className="animate-spin w-4 h-4" />
-            <span className="text-sm">Loading</span>
-          </div>
-        ) : (
-          navItems.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+      {/* =====================================================
+          NAVIGATION
+      ====================================================== */}
+      <div className="flex-1 px-3 pb-4 overflow-y-auto scrollbar-thin">
+        {menuGroups.map((group) => {
+          const isGroupOpen = group.key
+            ? openMenus[group.key]
+            : true;
 
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={`relative flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium group transition-all duration-200
-                ${
-                  isActive
-                    ? "bg-indigo-500/10 text-indigo-300"
-                    : "text-slate-400 hover:bg-white/5 hover:text-white"
+          return (
+            <div
+              key={group.title}
+              className="mb-5"
+            >
+              {/* GROUP TITLE */}
+              <button
+                type="button"
+                disabled={!group.key}
+                onClick={() =>
+                  group.key && toggleMenu(group.key)
+                }
+                className={`w-full flex items-center justify-between px-2 mb-2 ${
+                  group.key
+                    ? "cursor-pointer"
+                    : "cursor-default"
                 }`}
               >
-                {/* active indicator */}
-                {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-indigo-500" />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                  {group.title}
+                </span>
+
+                {group.key && (
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${
+                      isGroupOpen
+                        ? ""
+                        : "-rotate-90"
+                    }`}
+                  />
                 )}
+              </button>
 
-                <item.icon
-                  className={`w-[17px] h-[17px] shrink-0 transition-colors ${
-                    isActive
-                      ? "text-indigo-300"
-                      : "text-slate-400 group-hover:text-slate-200"
-                  }`}
-                />
+              {/* MENU ITEMS */}
+              {isGroupOpen && (
+                <div className="space-y-1">
+                  {group.items.map((item) => {
+                    const active = isActive(item.href);
+                    const Icon = item.icon;
 
-                <span className="flex-1">{item.name}</span>
+                    return (
+                      <Link
+                        key={item.href}
+                        to={item.href}
+                        className={`relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group ${
+                          active
+                            ? "bg-indigo-500/10 text-indigo-300"
+                            : "text-slate-400 hover:bg-white/5 hover:text-white"
+                        }`}
+                      >
+                        {/* Active Indicator */}
+                        {active && (
+                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-indigo-500" />
+                        )}
 
-                {isActive && (
-                  <ChevronRightIcon className="w-3.5 h-3.5 text-indigo-400/60" />
-                )}
-              </Link>
-            );
-          })
-        )}
+                        {/* Icon */}
+                        <Icon
+                          className={`w-[17px] h-[17px] shrink-0 transition-colors ${
+                            active
+                              ? "text-indigo-300"
+                              : "text-slate-500 group-hover:text-slate-300"
+                          }`}
+                        />
+
+                        {/* Name */}
+                        <span className="flex-1 truncate">
+                          {item.name}
+                        </span>
+
+                        {/* Active Arrow */}
+                        {active && (
+                          <ChevronRight className="w-3.5 h-3.5 text-indigo-400/60 shrink-0" />
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* logout */}
-      <div className="p-3 border-t border-white/6">
+      {/* =====================================================
+          LOGOUT
+      ====================================================== */}
+      <div className="p-3 border-t border-white/10">
         <button
+          type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-[13px] font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/8 transition-all duration-150 "
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-[13px] font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-200"
         >
-          <LogOutIcon className="w=[17px] h-[17px]" />
+          <LogOut className="w-[17px] h-[17px] shrink-0" />
+
           <span>Log out</span>
         </button>
       </div>
@@ -167,15 +352,21 @@ const Sidebar = () => {
 
   return (
     <>
-      {/* MOBILE BUTTON */}
+      {/* =====================================================
+          MOBILE MENU BUTTON
+      ====================================================== */}
       <button
+        type="button"
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-900 text-white rounded-lg shadow-lg border border-white/10"
+        aria-label="Open menu"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-900 text-white rounded-lg shadow-lg border border-white/10 hover:bg-slate-800 transition-colors"
       >
-        <MenuIcon size={20} />
+        <Menu className="w-5 h-5" />
       </button>
 
-      {/* OVERLAY */}
+      {/* =====================================================
+          MOBILE OVERLAY
+      ====================================================== */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
@@ -183,15 +374,21 @@ const Sidebar = () => {
         />
       )}
 
-      {/* DESKTOP SIDEBAR */}
-      <aside className="hidden lg:flex flex-col h-full w-64 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white shrink-0 border-r border-white/10">
+      {/* =====================================================
+          DESKTOP SIDEBAR
+      ====================================================== */}
+      <aside className="hidden lg:flex flex-col h-screen w-64 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white shrink-0 border-r border-white/10">
         {sidebarContent}
       </aside>
 
-      {/* MOBILE SIDEBAR */}
+      {/* =====================================================
+          MOBILE SIDEBAR
+      ====================================================== */}
       <aside
         className={`lg:hidden fixed inset-y-0 left-0 w-72 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white z-50 flex flex-col transform transition-transform duration-300 ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
+          mobileOpen
+            ? "translate-x-0"
+            : "-translate-x-full"
         }`}
       >
         {sidebarContent}

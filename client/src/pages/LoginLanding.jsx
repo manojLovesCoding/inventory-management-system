@@ -1,30 +1,46 @@
 import React from "react";
 import LoginLeftSide from "../components/LoginLeftSide";
-import { ArrowRightIcon, ShieldIcon, UserIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  ShieldIcon,
+  BoxesIcon,
+  Building2Icon,
+} from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import Loading from "../components/Loading";
 import { useAuth } from "../context/AuthContext";
 
 const LoginLanding = () => {
+  const { user, loading } = useAuth();
 
-const { user, loading } = useAuth();
+  if (loading) {
+    return <Loading />;
+  }
 
-  if (loading) return <Loading />;
-  if (user) return <Navigate to="/" />;
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const portalOptions = [
     {
       to: "/login/admin",
       title: "Admin Portal",
-      description: "Manage the organization, employees, and payroll with ease.",
+      description:
+        "Manage users, inventory, procurement, reports, and system settings.",
       icon: ShieldIcon,
     },
     {
-      to: "/login/employee",
-      title: "Employee Portal",
+      to: "/login/store",
+      title: "Store Portal",
       description:
-        "Access your payslips, attendance, and personal information securely.",
-      icon: UserIcon,
+        "Manage stock, purchases, suppliers, returns, and inventory operations.",
+      icon: BoxesIcon,
+    },
+    {
+      to: "/login/department",
+      title: "Department Portal",
+      description: "Submit and manage department inventory requests.",
+      icon: Building2Icon,
     },
   ];
   return (

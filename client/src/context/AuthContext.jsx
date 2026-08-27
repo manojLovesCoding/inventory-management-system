@@ -1,62 +1,97 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
 
+const STORAGE_KEY = "inventory_user";
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem("token"));
   const [loading, setLoading] = useState(true);
 
-  const refreshSession = async () => {
-    const storedToken = localStorage.getItem("token");
-    if (!storedToken) {
-      setUser(null);
-      setToken(null);
-      setLoading(false);
-      return;
-    }
-
+  // Restore logged-in user once when the application starts
+  useEffect(() => {
     try {
-      const { data } = await api.get("/auth/session");
-      setUser(data.user);
+      const storedUser = localStorage.getItem(STORAGE_KEY);
+
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+
+        if (parsedUser && parsedUser.id && parsedUser.role) {
+          setUser(parsedUser);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
     } catch (error) {
-      //token is invalid, clear it
-      localStorage.removeItem("token");
-      setUser(null);
-      setToken(null);
+      console.error("Failed to restore user session:", error);
+      localStorage.removeItem(STORAGE_KEY);
     } finally {
       setLoading(false);
     }
-  };
-  useEffect(() => {
-    refreshSession();
   }, []);
 
-  const login = async (email, password, role_type) => {
-    const { data } = await api.post("/auth/login", {
+  const login = async (email, password, role) => {
+    // Frontend-only demo authentication
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const roleDetails = {
+      ADMIN: {
+        name: "Inventory Administrator",
+        label: "Administrator",
+      },
+      STORE: {
+        name: "Store Manager",
+        label: "Store Manager",
+      },
+      DEPARTMENT: {
+        name: "Department User",
+        label: "Department User",
+      },
+    };
+
+    const selectedRole = roleDetails[role] || roleDetails.ADMIN;
+
+    const userData = {
+      id: `demo-${role.toLowerCase()}-001`,
+      name: selectedRole.name,
       email,
-      password,
-      role_type,
-    });
-    localStorage.setItem("token", data.token);
-    setToken(data.token);
-    setUser(data.user);
-    return data.user;
+      role,
+      roleLabel: selectedRole.label,
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+
+    setUser(userData);
+
+    return userData;
   };
 
-  const logout = async () => {
-    localStorage.removeItem("token");
-    setToken(null);
+  const logout = () => {
+    localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   };
 
-  const value = { user, token, loading, login, logout, refreshSession };
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const value = {
+    user,
+    loading,
+    login,
+    logout,
+    isAuthenticated: Boolean(user),
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+
+  return context;
 }
