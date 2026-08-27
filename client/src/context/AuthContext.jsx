@@ -1,97 +1,97 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import api from "../api/axios";
 
-const AuthContext = createContext(null);
+const AuthContext = createContext();
 
-const STORAGE_KEY = "inventory_user";
-
-export function AuthProvider({ children }) {
+export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Restore logged-in user once when the application starts
+  // Check whether user is already logged in
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem(STORAGE_KEY);
+    const storedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("token");
 
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-
-        if (parsedUser && parsedUser.id && parsedUser.role) {
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
+    if (storedUser && token) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error("Invalid stored user:", error);
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
       }
-    } catch (error) {
-      console.error("Failed to restore user session:", error);
-      localStorage.removeItem(STORAGE_KEY);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }, []);
 
+  // Login
   const login = async (email, password, role) => {
-    // Frontend-only demo authentication
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const response = await api.post("/auth/login", {
+        email,
+        password,
+        role,
+      });
 
-    const roleDetails = {
-      ADMIN: {
-        name: "Inventory Administrator",
-        label: "Administrator",
-      },
-      STORE: {
-        name: "Store Manager",
-        label: "Store Manager",
-      },
-      DEPARTMENT: {
-        name: "Department User",
-        label: "Department User",
-      },
-    };
+      const data = response.data;
 
-    const selectedRole = roleDetails[role] || roleDetails.ADMIN;
+      if (!data.success) {
+        throw new Error(data.message || "Login failed");
+      }
 
-    const userData = {
-      id: `demo-${role.toLowerCase()}-001`,
-      name: selectedRole.name,
-      email,
-      role,
-      roleLabel: selectedRole.label,
-    };
+      // Save token
+      localStorage.setItem("token", data.token);
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+      // Save user
+      localStorage.setItem(
+        "user",
+        JSON.stringify(data.user)
+      );
 
-    setUser(userData);
+      // Update React state
+      setUser(data.user);
 
-    return userData;
+      return data;
+    } catch (error) {
+      console.error("Login error:", error);
+
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Login failed";
+
+      throw new Error(message);
+    }
   };
 
+  // Logout
   const logout = () => {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
     setUser(null);
   };
 
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    isAuthenticated: Boolean(user),
-  };
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-
-  return context;
-}
+export const useAuth = () => {
+  return useContext(AuthContext);
+};

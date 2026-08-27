@@ -1,78 +1,153 @@
-import User from "../models/User.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-//login for employee and admin
-//POST /api/auth/login
-export const login = async (req, res) => {
-  try {
-    const { email, password, role_type } = req.body;
+import User from "../models/User.js";
 
-    if (!email || !password) {
-      return res.status(400).json({ error: "email and password are required" });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ error: "Invalid creedentials" });
-    }
-
-    if (role_type === "admin" && user.role !== "ADMIN") {
-      return res.status(401).json({ error: "not authorizes as admin" });
-    }
-
-    if (role_type === "employee" && user.role !== "EMPLOYEE") {
-      return res.status(401).json({ error: "not authorizes as employee" });
-    }
-
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) {
-      return res.status(401).json({ error: "Invalid creedentials" });
-    }
-
-    const payload = {
-      userId: user._id.toString(),
+const generateToken = (user) => {
+  return jwt.sign(
+    {
+      id: user._id,
       role: user.role,
-      email: user.email,
-    };
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "1d",
+    }
+  );
+};
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "7d",
+// Register user
+export const register = async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    const allowedRoles = ["admin", "store", "department"];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role",
+      });
+    }
+
+    const existingUser = await User.findOne({
+      email: email.toLowerCase(),
     });
-    return res.json({ user: payload, token });
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "User registered successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      },
+    });
   } catch (error) {
-    console.error("Login error :", error);
-    return res.status(500).json({ error: "Login failed" });
+    console.error("Register error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
-//Get session for employee and admin
-//GET api/auth/session
-export const session = (req, res) => {
-  const session = req.session;
-  return res.json({ user: session });
-};
-
-//change password for employee and admin
-//POST /api/auth/change-password
-export const changePassword = async (req, res) => {
+// Login
+export const login = async (req, res) => {
   try {
-    const session = req.session;
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: "both password are required" });
+    const { email, password, role } = req.body;
+
+    if (!email || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, password and role are required",
+      });
     }
 
-    const user = await User.findById(session.userId);
-    if (!user) return res.status(400).json({ error: "user not found" });
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+    });
 
-    const isValid = await bcrypt.compare(currentPassword, user.password);
-    if (!isValid)
-      return res.status(400).json({ error: "Cyrrent password is incorrect" });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
 
-    const hashed = await bcrypt.hash(newPassword, 10);
-    await User.findByIdAndUpdate(session.userId, { password: hashed });
-    return res.json({ success: true });
+    if (user.role !== role) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to access this portal",
+      });
+    }
+
+    if (user.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is inactive",
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    const token = generateToken(user);
+
+    res.status(200).json({
+      success: true,
+      message: "Login successful",
+
+      token,
+
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      },
+    });
   } catch (error) {
-    return res.status(500).json({ error: "failed to change  password" });
+    console.error("Login error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };

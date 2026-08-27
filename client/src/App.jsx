@@ -85,7 +85,7 @@ const App = () => {
           element={
             <PublicRoute>
               <LoginForm
-                role="ADMIN"
+                role="admin"
                 title="Admin Portal"
                 subtitle="Manage the college inventory system"
               />
@@ -98,7 +98,7 @@ const App = () => {
           element={
             <PublicRoute>
               <LoginForm
-                role="STORE"
+                role="store"
                 title="Store Portal"
                 subtitle="Manage stock and inventory operations"
               />
@@ -111,7 +111,7 @@ const App = () => {
           element={
             <PublicRoute>
               <LoginForm
-                role="DEPARTMENT"
+                role="department"
                 title="Department Portal"
                 subtitle="Manage department inventory requests"
               />

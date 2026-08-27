@@ -1,15 +1,12 @@
-import { Router } from "express";
+import express from "express";
 import {
-  changePassword,
+  register,
   login,
-  session,
 } from "../controllers/authController.js";
-import { protect } from "../middleware/auth.js";
 
-const authRouter = Router();
+const authrouter = express.Router();
 
-authRouter.post("/login", login);
-authRouter.get("/session", protect, session);
-authRouter.post("/change-password", protect, changePassword);
+authrouter.post("/register", register);
+authrouter.post("/login", login);
 
-export default authRouter;
+export default authrouter;

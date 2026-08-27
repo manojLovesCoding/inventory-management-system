@@ -1,9 +1,8 @@
-import { Router } from "express";
-
-import { protect, protectAdmin } from "../middleware/auth.js";
+import express from "express";
 import { getDashboard } from "../controllers/dashboardController.js";
+import protect from "../middleware/authMiddleware.js";
 
-const dashboardRouter = Router();
+const dashboardRouter = express.Router();
 
 dashboardRouter.get("/", protect, getDashboard);
 

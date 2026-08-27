@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import LoginLeftSide from "./LoginLeftSide";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -22,10 +22,15 @@ const LoginForm = ({ role, title, subtitle }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!email.trim() || !password.trim()) {
+      toast.error("Please enter your email and password");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(email, password, role);
+      await login(email.trim().toLowerCase(), password, role);
 
       toast.success("Login successful");
 
@@ -33,9 +38,9 @@ const LoginForm = ({ role, title, subtitle }) => {
         replace: true,
       });
     } catch (error) {
-      toast.error(
-        error.message || "Login failed"
-      );
+      console.error("Login failed:", error);
+
+      toast.error(error.message || "Invalid email or password");
     } finally {
       setLoading(false);
     }
@@ -43,18 +48,20 @@ const LoginForm = ({ role, title, subtitle }) => {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
+      {/* Left Side */}
       <LoginLeftSide />
 
+      {/* Right Side */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-sm animate-fade-in">
-
           {/* Back */}
           <Link
             to="/login"
             className="inline-flex items-center gap-2 text-slate-400 hover:text-slate-700 text-sm mb-6 transition-colors"
           >
             <ArrowLeftIcon size={16} />
-            Back to portals
+
+            <span>Back to portals</span>
           </Link>
 
           {/* Heading */}
@@ -68,11 +75,8 @@ const LoginForm = ({ role, title, subtitle }) => {
             </p>
           </div>
 
-          {/* Form */}
-          <form
-            className="space-y-6"
-            onSubmit={handleSubmit}
-          >
+          {/* Login Form */}
+          <form className="space-y-6" onSubmit={handleSubmit}>
             {/* Email */}
             <div>
               <label
@@ -84,14 +88,15 @@ const LoginForm = ({ role, title, subtitle }) => {
 
               <input
                 id="email"
+                name="email"
                 type="email"
                 value={email}
-                onChange={(e) =>
-                  setEmail(e.target.value)
-                }
+                onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
                 placeholder="you@example.com"
-                className="w-full border border-zinc-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none py-2.5 px-3 rounded-lg transition"
+                disabled={loading}
+                className="w-full border border-zinc-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none py-2.5 px-3 rounded-lg transition disabled:bg-zinc-100 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -107,28 +112,23 @@ const LoginForm = ({ role, title, subtitle }) => {
               <div className="relative">
                 <input
                   id="password"
-                  type={
-                    showPassword
-                      ? "text"
-                      : "password"
-                  }
+                  name="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) =>
-                    setPassword(e.target.value)
-                  }
+                  onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                   placeholder="••••••••"
-                  className="w-full border border-zinc-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none py-2.5 px-3 pr-10 rounded-lg transition"
+                  disabled={loading}
+                  className="w-full border border-zinc-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none py-2.5 px-3 pr-10 rounded-lg transition disabled:bg-zinc-100 disabled:cursor-not-allowed"
                 />
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowPassword(
-                      !showPassword
-                    )
-                  }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  disabled={loading}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed"
                 >
                   {showPassword ? (
                     <EyeOffIcon size={18} />
@@ -143,13 +143,10 @@ const LoginForm = ({ role, title, subtitle }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 transition flex items-center justify-center"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center"
             >
               {loading && (
-                <LoaderPinwheel
-                  className="animate-spin mr-2"
-                  size={16}
-                />
+                <LoaderPinwheel className="animate-spin mr-2" size={16} />
               )}
 
               {loading ? "Signing in..." : "Sign in"}

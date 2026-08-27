@@ -1,72 +1,163 @@
-//Get dashboard for employee and admin
-//GET /api/dashboard
-
-import { DEPARTMENTS } from "../constants/departments.js";
-import Attendance from "../models/Attendance.js";
-import Employee from "../models/Employee.js";
-import LeaveApplication from "../models/LeaveApplication.js";
-import Payslip from "../models/Payslip.js";
+import InventoryItem from "../models/InventoryItem.js";
+import StockTransaction from "../models/StockTransaction.js";
 
 export const getDashboard = async (req, res) => {
   try {
-    const session = req.session;
-    if (session.role === "ADMIN") {
-      const [totalEmployees, todayAttendance, pendingLeaves] =
-        await Promise.all([
-          Employee.countDocuments({ isDeleted: { $ne: true } }),
-          Attendance.countDocuments({
-            date: {
-              $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-              $lt: new Date(new Date().setHours(24, 0, 0, 0)),
-            },
-          }),
-          LeaveApplication.countDocuments({ status: "PENDING" }),
-        ]);
+    // ============================================
+    // BASIC INVENTORY STATISTICS
+    // ============================================
 
-      return res.json({
-        role: "ADMIN",
-        totalEmployees,
-        totalDepartments: DEPARTMENTS.length,
-        todayAttendance,
-        pendingLeaves,
-      });
-    } else {
-      const employee = await Employee.findOne({
-        userId: session.userId,
-      }).lean();
-      if (!employee)
-        return res.status(404).json({ error: "Employee not found" });
+    const totalItems = await InventoryItem.countDocuments({
+      status: "active",
+    });
 
-      const today = new Date();
-      const [currentMonthAttendance, pendingLeaves, latestPayslip] =
-        await Promise.all([
-          Attendance.countDocuments({
-            employeeId: employee._id,
-            date: {
-              $gte: new Date(today.getFullYear(), today.getMonth(), 1),
-              $lt: new Date(today.getFullYear(), today.getMonth() + 1, 1),
+    const stockStats = await InventoryItem.aggregate([
+      {
+        $match: {
+          status: "active",
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalStock: {
+            $sum: "$quantity",
+          },
+          lowStock: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gt: ["$quantity", 0] },
+                    {
+                      $lte: [
+                        "$quantity",
+                        "$minimumStock",
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
             },
-          }),
-          LeaveApplication.countDocuments({
-            employeeId: employee._id,
-            status: "PENDING",
-          }),
-          Payslip.findOne({ employeeId: employee._id })
-            .sort({ createdAt: -1 })
-            .lean(),
-        ]);
-      return res.json({
-        role: "EMPLOYEE",
-        employee: { ...employee, id: employee._id.toString() },
-        currentMonthAttendance,
-        pendingLeaves,
-        latestPayslip: latestPayslip
-          ? { ...latestPayslip, id: latestPayslip._id.toString() }
-          : null,
-      });
-    }
+          },
+          outOfStock: {
+            $sum: {
+              $cond: [
+                {
+                  $eq: ["$quantity", 0],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const statistics = stockStats[0] || {
+      totalStock: 0,
+      lowStock: 0,
+      outOfStock: 0,
+    };
+
+    // ============================================
+    // STOCK OVERVIEW
+    // ============================================
+
+    const stockOverview = await InventoryItem.aggregate([
+      {
+        $match: {
+          status: "active",
+        },
+      },
+      {
+        $group: {
+          _id: "$category",
+          totalItems: {
+            $sum: 1,
+          },
+          totalStock: {
+            $sum: "$quantity",
+          },
+        },
+      },
+      {
+        $sort: {
+          totalStock: -1,
+        },
+      },
+    ]);
+
+    // ============================================
+    // RECENT TRANSACTIONS
+    // ============================================
+
+    const recentTransactions =
+      await StockTransaction.find()
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate(
+          "performedBy",
+          "name email role"
+        )
+        .lean();
+
+    // ============================================
+    // LOW STOCK ITEMS
+    // ============================================
+
+    const lowStockItems = await InventoryItem.find({
+      status: "active",
+      quantity: {
+        $gt: 0,
+      },
+      $expr: {
+        $lte: ["$quantity", "$minimumStock"],
+      },
+    })
+      .sort({
+        quantity: 1,
+      })
+      .limit(10)
+      .select(
+        "name sku category quantity minimumStock unit"
+      )
+      .lean();
+
+    // ============================================
+    // RESPONSE
+    // ============================================
+
+    return res.status(200).json({
+      success: true,
+
+      data: {
+        statistics: {
+          totalItems,
+          totalStock: statistics.totalStock || 0,
+          lowStock: statistics.lowStock || 0,
+          outOfStock: statistics.outOfStock || 0,
+        },
+
+        stockOverview,
+
+        recentTransactions,
+
+        lowStockItems,
+      },
+    });
   } catch (error) {
-    console.error("Dashboard error:", error);
-    return res.status(500).json({ error: "Failed" });
+    console.error(
+      "Dashboard controller error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load dashboard data",
+    });
   }
 };
