@@ -9,6 +9,7 @@ import dashboardRouter from "./routes/dashboardRoutes.js";
 import supplierRouter from "./routes/supplierRoutes.js";
 import purchaseRouter from "./routes/purchaseRoutes.js";
 import categoryRouter from "./routes/categoryRoutes.js";
+import departmentRouter from "./routes/departmentRoutes.js";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/api/dashboard", dashboardRouter);
 app.use("/api/suppliers", supplierRouter);
 app.use("/api/purchases", purchaseRouter);
 app.use("/api/categories", categoryRouter);
+app.use("/api/departments", departmentRouter);
 
 // Database
 await connectDB();
