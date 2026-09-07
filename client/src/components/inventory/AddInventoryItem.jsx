@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, PackagePlus } from "lucide-react";
 import toast from "react-hot-toast";
+import api from "../../api/axios.js";
+
 
 const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
   const [formData, setFormData] = useState({
@@ -14,7 +16,66 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
     description: "",
   });
 
+  const [categories, setCategories] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  /*
+
+* Fetch categories and departments when modal opens.
+  */
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchOptions = async () => {
+      setLoadingOptions(true);
+
+      try {
+        const [categoriesResponse, departmentsResponse] = await Promise.all([
+          api.get("/categories"),
+          api.get("/departments"),
+        ]);
+
+        /*
+         * Supports common API response structures:
+         *
+         * { data: [...] }
+         * { categories: [...] }
+         * [...]
+         */
+        const categoryData =
+          categoriesResponse.data?.data ||
+          categoriesResponse.data?.categories ||
+          categoriesResponse.data ||
+          [];
+
+        const departmentData =
+          departmentsResponse.data?.data ||
+          departmentsResponse.data?.departments ||
+          departmentsResponse.data ||
+          [];
+
+        setCategories(Array.isArray(categoryData) ? categoryData : []);
+
+        setDepartments(Array.isArray(departmentData) ? departmentData : []);
+      } catch (error) {
+        console.error("Failed to fetch categories and departments:", error);
+
+        toast.error(
+          error.response?.data?.message ||
+            "Failed to load categories and departments",
+        );
+
+        setCategories([]);
+        setDepartments([]);
+      } finally {
+        setLoadingOptions(false);
+      }
+    };
+
+    fetchOptions();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -25,6 +86,19 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
       ...prev,
       [name]: value,
     }));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      itemCode: "",
+      category: "",
+      department: "",
+      unit: "Nos",
+      minimumStock: "",
+      quantity: "",
+      description: "",
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -42,47 +116,56 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
 
     setLoading(true);
 
-    // Temporary frontend-only operation
-    await new Promise((resolve) =>
-      setTimeout(resolve, 500)
-    );
+    try {
+      /*
+       * Temporary frontend-only operation.
+       *
+       * We are NOT calling POST /api/inventory yet.
+       * That will be integrated later.
+       */
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const newItem = {
-      id:
-        formData.itemCode.trim() ||
-        `ITM-${Date.now().toString().slice(-6)}`,
-      name: formData.name.trim(),
-      category: formData.category,
-      department: formData.department,
-      quantity: Number(formData.quantity),
-      available: Number(formData.quantity),
-      unit: formData.unit,
-      minimumStock: Number(formData.minimumStock) || 0,
-      status:
-        Number(formData.quantity) <=
-        Number(formData.minimumStock || 0)
-          ? "Low Stock"
-          : "Available",
-      description: formData.description.trim(),
-    };
+      const newItem = {
+        id:
+          formData.itemCode.trim() || `ITM-${Date.now().toString().slice(-6)}`,
 
-    onAdd(newItem);
+        name: formData.name.trim(),
 
-    toast.success("Inventory item added successfully");
+        category: formData.category,
 
-    setFormData({
-      name: "",
-      itemCode: "",
-      category: "",
-      department: "",
-      unit: "Nos",
-      minimumStock: "",
-      quantity: "",
-      description: "",
-    });
+        department: formData.department,
 
-    setLoading(false);
-    onClose();
+        quantity: Number(formData.quantity),
+
+        available: Number(formData.quantity),
+
+        unit: formData.unit,
+
+        minimumStock: Number(formData.minimumStock) || 0,
+
+        status:
+          Number(formData.quantity) <= Number(formData.minimumStock || 0)
+            ? "Low Stock"
+            : "Available",
+
+        description: formData.description.trim(),
+      };
+
+      if (onAdd) {
+        onAdd(newItem);
+      }
+
+      toast.success("Inventory item added successfully");
+
+      resetForm();
+      onClose();
+    } catch (error) {
+      console.error("Failed to add inventory item:", error);
+
+      toast.error("Failed to add inventory item");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -90,7 +173,11 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={() => {
+          if (!loading) {
+            onClose();
+          }
+        }}
       />
 
       {/* Modal */}
@@ -116,11 +203,21 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            disabled={loading}
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Loading Options */}
+        {loadingOptions && (
+          <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100">
+            <p className="text-xs text-indigo-600">
+              Loading categories and departments...
+            </p>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
@@ -152,7 +249,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     onChange={handleChange}
                     placeholder="e.g. HP Desktop Computer"
                     required
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
                 </div>
 
@@ -168,7 +266,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     value={formData.itemCode}
                     onChange={handleChange}
                     placeholder="e.g. ITM-0009"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
 
                   <p className="mt-1 text-[11px] text-slate-400">
@@ -187,7 +286,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     name="unit"
                     value={formData.unit}
                     onChange={handleChange}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   >
                     <option value="Nos">Nos</option>
                     <option value="Boxes">Boxes</option>
@@ -227,33 +327,41 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     value={formData.category}
                     onChange={handleChange}
                     required
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading || loadingOptions}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   >
                     <option value="">
-                      Select category
+                      {loadingOptions
+                        ? "Loading categories..."
+                        : "Select category"}
                     </option>
-                    <option value="Electronics">
-                      Electronics
-                    </option>
-                    <option value="Furniture">
-                      Furniture
-                    </option>
-                    <option value="Stationery">
-                      Stationery
-                    </option>
-                    <option value="Laboratory">
-                      Laboratory
-                    </option>
-                    <option value="Sports">
-                      Sports
-                    </option>
-                    <option value="Library">
-                      Library
-                    </option>
-                    <option value="Other">
-                      Other
-                    </option>
+
+                    {categories.map((category) => {
+                      const value =
+                        category._id ||
+                        category.id ||
+                        category.code ||
+                        category.name;
+
+                      const label =
+                        category.name ||
+                        category.title ||
+                        category.categoryName ||
+                        category.code;
+
+                      return (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {!loadingOptions && categories.length === 0 && (
+                    <p className="mt-1 text-[11px] text-rose-500">
+                      No categories available.
+                    </p>
+                  )}
                 </div>
 
                 {/* Department */}
@@ -268,33 +376,41 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     value={formData.department}
                     onChange={handleChange}
                     required
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading || loadingOptions}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   >
                     <option value="">
-                      Select department
+                      {loadingOptions
+                        ? "Loading departments..."
+                        : "Select department"}
                     </option>
-                    <option value="Main Store">
-                      Main Store
-                    </option>
-                    <option value="Administration">
-                      Administration
-                    </option>
-                    <option value="Computer Science">
-                      Computer Science
-                    </option>
-                    <option value="Commerce">
-                      Commerce
-                    </option>
-                    <option value="Arts">
-                      Arts
-                    </option>
-                    <option value="Library">
-                      Library
-                    </option>
-                    <option value="Physical Education">
-                      Physical Education
-                    </option>
+
+                    {departments.map((department) => {
+                      const value =
+                        department._id ||
+                        department.id ||
+                        department.code ||
+                        department.name;
+
+                      const label =
+                        department.name ||
+                        department.departmentName ||
+                        department.title ||
+                        department.code;
+
+                      return (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {!loadingOptions && departments.length === 0 && (
+                    <p className="mt-1 text-[11px] text-rose-500">
+                      No departments available.
+                    </p>
+                  )}
                 </div>
               </div>
             </section>
@@ -327,7 +443,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     min="0"
                     required
                     placeholder="0"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
                 </div>
 
@@ -344,7 +461,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     onChange={handleChange}
                     min="0"
                     placeholder="e.g. 5"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
 
                   <p className="mt-1 text-[11px] text-slate-400">
@@ -365,8 +483,9 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 value={formData.description}
                 onChange={handleChange}
                 rows={3}
+                disabled={loading}
                 placeholder="Add any additional information about this item..."
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none resize-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none resize-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
               />
             </section>
           </div>
@@ -384,7 +503,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || loadingOptions}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
               {loading ? (
