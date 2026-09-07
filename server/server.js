@@ -8,6 +8,7 @@ import authrouter from "./routes/authRoutes.js";
 import dashboardRouter from "./routes/dashboardRoutes.js";
 import supplierRouter from "./routes/supplierRoutes.js";
 import purchaseRouter from "./routes/purchaseRoutes.js";
+import categoryRouter from "./routes/categoryRoutes.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/auth", authrouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/suppliers", supplierRouter);
 app.use("/api/purchases", purchaseRouter);
+app.use("/api/categories", categoryRouter);
 
 // Database
 await connectDB();
