@@ -6,6 +6,8 @@ import dns from "dns";
 import connectDB from "./config/db.js";
 import authrouter from "./routes/authRoutes.js";
 import dashboardRouter from "./routes/dashboardRoutes.js";
+import supplierRouter from "./routes/supplierRoutes.js";
+import purchaseRouter from "./routes/purchaseRoutes.js";
 
 const app = express();
 
@@ -26,6 +28,8 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authrouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/suppliers", supplierRouter);
+app.use("/api/purchases", purchaseRouter);
 
 // Database
 await connectDB();

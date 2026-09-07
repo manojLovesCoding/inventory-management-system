@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Building2,
   CheckCircle2,
@@ -15,79 +15,9 @@ import {
   XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import api from "../api/axios.js";
 
-const initialSuppliers = [
-  {
-    id: "SUP-001",
-    name: "ABC Office Solutions",
-    contactPerson: "Rajesh Kumar",
-    phone: "9876543210",
-    email: "sales@abcoffice.com",
-    gstin: "29ABCDE1234F1Z5",
-    address: "MG Road, Bengaluru, Karnataka",
-    city: "Bengaluru",
-    state: "Karnataka",
-    pincode: "560001",
-    status: "Active",
-    createdAt: "2026-01-10",
-  },
-  {
-    id: "SUP-002",
-    name: "Bharat Electronics Suppliers",
-    contactPerson: "Suresh Rao",
-    phone: "9845123456",
-    email: "contact@bharatelectronics.in",
-    gstin: "29BCDEF2345G1Z6",
-    address: "Peenya Industrial Area, Bengaluru, Karnataka",
-    city: "Bengaluru",
-    state: "Karnataka",
-    pincode: "560058",
-    status: "Active",
-    createdAt: "2026-01-15",
-  },
-  {
-    id: "SUP-003",
-    name: "Digital Systems India",
-    contactPerson: "Arun Sharma",
-    phone: "9988776655",
-    email: "info@digitalsystems.in",
-    gstin: "29CDEFG3456H1Z7",
-    address: "Commercial Street, Bengaluru, Karnataka",
-    city: "Bengaluru",
-    state: "Karnataka",
-    pincode: "560001",
-    status: "Active",
-    createdAt: "2026-02-02",
-  },
-  {
-    id: "SUP-004",
-    name: "Karnataka Stationery Mart",
-    contactPerson: "Manjunath B",
-    phone: "9900123456",
-    email: "orders@kstnmart.com",
-    gstin: "29DEFGH4567J1Z8",
-    address: "Station Road, Raichur, Karnataka",
-    city: "Raichur",
-    state: "Karnataka",
-    pincode: "584101",
-    status: "Active",
-    createdAt: "2026-02-18",
-  },
-  {
-    id: "SUP-005",
-    name: "National Furniture Works",
-    contactPerson: "Vijay Kumar",
-    phone: "9812345678",
-    email: "sales@nationalfurniture.in",
-    gstin: "29EFGHI5678K1Z9",
-    address: "Industrial Estate, Hubballi, Karnataka",
-    city: "Hubballi",
-    state: "Karnataka",
-    pincode: "580030",
-    status: "Inactive",
-    createdAt: "2026-03-05",
-  },
-];
+
 
 const emptyForm = {
   name: "",
@@ -103,7 +33,7 @@ const emptyForm = {
 };
 
 const Suppliers = () => {
-  const [suppliers, setSuppliers] = useState(initialSuppliers);
+  const [suppliers, setSuppliers] = useState([]);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -116,68 +46,105 @@ const Suppliers = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
 
-  const filteredSuppliers = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-    return suppliers.filter((supplier) => {
-      const matchesSearch =
-        !query ||
-        supplier.name.toLowerCase().includes(query) ||
-        supplier.id.toLowerCase().includes(query) ||
-        supplier.contactPerson.toLowerCase().includes(query) ||
-        supplier.phone.includes(query) ||
-        supplier.gstin.toLowerCase().includes(query) ||
-        supplier.city.toLowerCase().includes(query);
+  // =========================
+  // GET SUPPLIERS
+  // =========================
+  const fetchSuppliers = async () => {
+    try {
+      setLoading(true);
 
-      const matchesStatus =
-        statusFilter === "All" ||
-        supplier.status === statusFilter;
+      const params = {};
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [suppliers, search, statusFilter]);
+      if (search.trim()) {
+        params.search = search.trim();
+      }
 
+      if (statusFilter !== "All") {
+        params.status = statusFilter;
+      }
+
+      const response = await api.get("/suppliers", {
+        params,
+      });
+
+      if (response.data.success) {
+        setSuppliers(response.data.suppliers || []);
+      }
+    } catch (error) {
+      console.error("Fetch suppliers error:", error);
+
+      toast.error(error.response?.data?.message || "Failed to load suppliers");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =========================
+  // FETCH ON SEARCH/FILTER
+  // =========================
+  useEffect(() => {
+    fetchSuppliers();
+  }, [search, statusFilter]);
+
+  // =========================
+  // COUNTS
+  // =========================
   const totalSuppliers = suppliers.length;
 
   const activeSuppliers = suppliers.filter(
-    (supplier) => supplier.status === "Active"
+    (supplier) => supplier.status === "Active",
   ).length;
 
   const inactiveSuppliers = suppliers.filter(
-    (supplier) => supplier.status === "Inactive"
+    (supplier) => supplier.status === "Inactive",
   ).length;
 
+  // =========================
+  // OPEN ADD MODAL
+  // =========================
   const openAddModal = () => {
     setEditingSupplier(null);
     setForm(emptyForm);
     setShowModal(true);
   };
 
+  // =========================
+  // OPEN EDIT MODAL
+  // =========================
   const openEditModal = (supplier) => {
     setEditingSupplier(supplier);
 
     setForm({
-      name: supplier.name,
-      contactPerson: supplier.contactPerson,
-      phone: supplier.phone,
-      email: supplier.email,
-      gstin: supplier.gstin,
-      address: supplier.address,
-      city: supplier.city,
-      state: supplier.state,
-      pincode: supplier.pincode,
-      status: supplier.status,
+      name: supplier.name || "",
+      contactPerson: supplier.contactPerson || "",
+      phone: supplier.phone || "",
+      email: supplier.email || "",
+      gstin: supplier.gstin || "",
+      address: supplier.address || "",
+      city: supplier.city || "",
+      state: supplier.state || "Karnataka",
+      pincode: supplier.pincode || "",
+      status: supplier.status || "Active",
     });
 
     setShowModal(true);
   };
 
+  // =========================
+  // CLOSE FORM MODAL
+  // =========================
   const closeModal = () => {
     setShowModal(false);
     setEditingSupplier(null);
     setForm(emptyForm);
   };
 
+  // =========================
+  // FORM CHANGE
+  // =========================
   const handleChange = (e) => {
     const { name, value } = e.target;
 
@@ -187,40 +154,28 @@ const Suppliers = () => {
     }));
   };
 
-  const generateSupplierId = () => {
-    const nextNumber =
-      suppliers.reduce((max, supplier) => {
-        const number = Number(
-          supplier.id.replace("SUP-", "")
-        );
-
-        return Math.max(max, number || 0);
-      }, 0) + 1;
-
-    return `SUP-${String(nextNumber).padStart(3, "0")}`;
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
+  // =========================
+  // VALIDATE FORM
+  // =========================
+  const validateForm = () => {
     if (!form.name.trim()) {
       toast.error("Supplier name is required");
-      return;
+      return false;
     }
 
     if (!form.contactPerson.trim()) {
       toast.error("Contact person is required");
-      return;
+      return false;
     }
 
     if (!form.phone.trim()) {
       toast.error("Phone number is required");
-      return;
+      return false;
     }
 
     if (!/^[0-9]{10}$/.test(form.phone.trim())) {
       toast.error("Enter a valid 10-digit phone number");
-      return;
+      return false;
     }
 
     if (
@@ -228,65 +183,56 @@ const Suppliers = () => {
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
     ) {
       toast.error("Enter a valid email address");
-      return;
+      return false;
     }
 
     if (!form.gstin.trim()) {
       toast.error("GSTIN is required");
-      return;
+      return false;
     }
 
     if (form.gstin.trim().length !== 15) {
       toast.error("GSTIN must contain 15 characters");
-      return;
+      return false;
     }
 
     if (!form.address.trim()) {
       toast.error("Address is required");
-      return;
+      return false;
     }
 
     if (!form.city.trim()) {
       toast.error("City is required");
-      return;
+      return false;
     }
 
     if (!form.pincode.trim()) {
       toast.error("PIN code is required");
-      return;
+      return false;
     }
 
     if (!/^[0-9]{6}$/.test(form.pincode.trim())) {
       toast.error("Enter a valid 6-digit PIN code");
+      return false;
+    }
+
+    return true;
+  };
+
+  // =========================
+  // CREATE / UPDATE SUPPLIER
+  // =========================
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
       return;
     }
 
-    if (editingSupplier) {
-      setSuppliers((prev) =>
-        prev.map((supplier) =>
-          supplier.id === editingSupplier.id
-            ? {
-                ...supplier,
-                ...form,
-                name: form.name.trim(),
-                contactPerson: form.contactPerson.trim(),
-                phone: form.phone.trim(),
-                email: form.email.trim(),
-                gstin: form.gstin.trim().toUpperCase(),
-                address: form.address.trim(),
-                city: form.city.trim(),
-                state: form.state.trim(),
-                pincode: form.pincode.trim(),
-              }
-            : supplier
-        )
-      );
+    try {
+      setSubmitting(true);
 
-      toast.success("Supplier updated successfully");
-    } else {
-      const newSupplier = {
-        id: generateSupplierId(),
-        ...form,
+      const payload = {
         name: form.name.trim(),
         contactPerson: form.contactPerson.trim(),
         phone: form.phone.trim(),
@@ -296,78 +242,134 @@ const Suppliers = () => {
         city: form.city.trim(),
         state: form.state.trim(),
         pincode: form.pincode.trim(),
-        createdAt: new Date()
-          .toISOString()
-          .split("T")[0],
+        status: form.status,
       };
 
-      setSuppliers((prev) => [
-        ...prev,
-        newSupplier,
-      ]);
+      if (editingSupplier) {
+        const response = await api.put(
+          `/suppliers/${editingSupplier._id}`,
+          payload,
+        );
 
-      toast.success("Supplier added successfully");
+        if (response.data.success) {
+          toast.success(
+            response.data.message || "Supplier updated successfully",
+          );
+
+          closeModal();
+
+          await fetchSuppliers();
+        }
+      } else {
+        const response = await api.post("/suppliers", payload);
+
+        if (response.data.success) {
+          toast.success(response.data.message || "Supplier added successfully");
+
+          closeModal();
+
+          await fetchSuppliers();
+        }
+      }
+    } catch (error) {
+      console.error("Save supplier error:", error);
+
+      toast.error(error.response?.data?.message || "Failed to save supplier");
+    } finally {
+      setSubmitting(false);
     }
-
-    closeModal();
   };
 
-  const handleDelete = (supplier) => {
+  // =========================
+  // DELETE SUPPLIER
+  // =========================
+  const handleDelete = async (supplier) => {
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${supplier.name}"?`
+      `Are you sure you want to delete "${supplier.name}"?`,
     );
 
-    if (!confirmed) return;
-
-    setSuppliers((prev) =>
-      prev.filter(
-        (item) => item.id !== supplier.id
-      )
-    );
-
-    if (
-      selectedSupplier?.id === supplier.id
-    ) {
-      setSelectedSupplier(null);
-      setShowDetails(false);
+    if (!confirmed) {
+      return;
     }
 
-    toast.success("Supplier deleted successfully");
+    try {
+      const response = await api.delete(`/suppliers/${supplier._id}`);
+
+      if (response.data.success) {
+        toast.success(response.data.message || "Supplier deleted successfully");
+
+        if (selectedSupplier?._id === supplier._id) {
+          setSelectedSupplier(null);
+          setShowDetails(false);
+        }
+
+        await fetchSuppliers();
+      }
+    } catch (error) {
+      console.error("Delete supplier error:", error);
+
+      toast.error(error.response?.data?.message || "Failed to delete supplier");
+    }
   };
 
-  const toggleStatus = (supplier) => {
-    const newStatus =
-      supplier.status === "Active"
-        ? "Inactive"
-        : "Active";
+  // =========================
+  // TOGGLE STATUS
+  // =========================
+  const toggleStatus = async (supplier) => {
+    try {
+      const response = await api.patch(`/suppliers/${supplier._id}/status`);
 
-    setSuppliers((prev) =>
-      prev.map((item) =>
-        item.id === supplier.id
-          ? {
-              ...item,
-              status: newStatus,
-            }
-          : item
-      )
-    );
+      if (response.data.success) {
+        toast.success(response.data.message || "Supplier status updated");
 
-    toast.success(
-      `Supplier marked as ${newStatus.toLowerCase()}`
-    );
+        if (selectedSupplier?._id === supplier._id) {
+          setSelectedSupplier(response.data.supplier);
+        }
+
+        await fetchSuppliers();
+      }
+    } catch (error) {
+      console.error("Toggle supplier status error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to update supplier status",
+      );
+    }
   };
 
-  const openDetails = (supplier) => {
-    setSelectedSupplier(supplier);
-    setShowDetails(true);
+  // =========================
+  // GET SINGLE SUPPLIER
+  // =========================
+  const openDetails = async (supplier) => {
+    try {
+      const response = await api.get(`/suppliers/${supplier._id}`);
+
+      if (response.data.success) {
+        setSelectedSupplier(response.data.supplier);
+
+        setShowDetails(true);
+      }
+    } catch (error) {
+      console.error("Get supplier details error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to load supplier details",
+      );
+    }
   };
 
+  // =========================
+  // CLOSE DETAILS
+  // =========================
   const closeDetails = () => {
     setSelectedSupplier(null);
     setShowDetails(false);
   };
 
-  const getInitials = (name) => {
+  // =========================
+  // INITIALS
+  // =========================
+  const getInitials = (name = "") => {
     return name
       .split(" ")
       .filter(Boolean)
@@ -377,6 +379,9 @@ const Suppliers = () => {
       .toUpperCase();
   };
 
+  // =========================
+  // RENDER
+  // =========================
   return (
     <>
       <div className="space-y-6">
@@ -388,9 +393,7 @@ const Suppliers = () => {
             </div>
 
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Suppliers
-              </h1>
+              <h1 className="text-2xl font-bold text-slate-900">Suppliers</h1>
 
               <p className="text-sm text-slate-500 mt-1">
                 Manage suppliers and vendor information.
@@ -491,9 +494,7 @@ const Suppliers = () => {
                   <input
                     type="text"
                     value={search}
-                    onChange={(e) =>
-                      setSearch(e.target.value)
-                    }
+                    onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search suppliers..."
                     className="w-full sm:w-72 pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                   />
@@ -502,29 +503,30 @@ const Suppliers = () => {
                 {/* STATUS */}
                 <select
                   value={statusFilter}
-                  onChange={(e) =>
-                    setStatusFilter(e.target.value)
-                  }
+                  onChange={(e) => setStatusFilter(e.target.value)}
                   className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
                 >
-                  <option value="All">
-                    All Status
-                  </option>
+                  <option value="All">All Status</option>
 
-                  <option value="Active">
-                    Active
-                  </option>
+                  <option value="Active">Active</option>
 
-                  <option value="Inactive">
-                    Inactive
-                  </option>
+                  <option value="Inactive">Inactive</option>
                 </select>
               </div>
             </div>
           </div>
 
-          {/* EMPTY */}
-          {filteredSuppliers.length === 0 ? (
+          {/* LOADING */}
+          {loading ? (
+            <div className="py-16 px-5 text-center">
+              <div className="w-10 h-10 mx-auto border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
+
+              <p className="mt-4 text-sm text-slate-500">
+                Loading suppliers...
+              </p>
+            </div>
+          ) : suppliers.length === 0 ? (
+            /* EMPTY */
             <div className="py-16 px-5 text-center">
               <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 flex items-center justify-center">
                 <Truck className="w-6 h-6 text-slate-400" />
@@ -535,11 +537,12 @@ const Suppliers = () => {
               </h3>
 
               <p className="mt-1 text-xs text-slate-400">
-                Try changing your search or filter.
+                {search || statusFilter !== "All"
+                  ? "Try changing your search or filter."
+                  : "Add your first supplier to get started."}
               </p>
 
-              {(search ||
-                statusFilter !== "All") && (
+              {(search || statusFilter !== "All") && (
                 <button
                   type="button"
                   onClick={() => {
@@ -586,321 +589,254 @@ const Suppliers = () => {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
-                    {filteredSuppliers.map(
-                      (supplier) => (
-                        <tr
-                          key={supplier.id}
-                          className="hover:bg-slate-50/50 transition-colors"
-                        >
-                          {/* SUPPLIER */}
-                          <td className="px-5 py-4">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openDetails(
-                                  supplier
-                                )
-                              }
-                              className="flex items-center gap-3 text-left"
-                            >
-                              <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                                <span className="text-xs font-bold text-indigo-600">
-                                  {getInitials(
-                                    supplier.name
-                                  )}
-                                </span>
-                              </div>
-
-                              <div>
-                                <p className="text-sm font-medium text-slate-800 hover:text-indigo-600">
-                                  {supplier.name}
-                                </p>
-
-                                <p className="text-[10px] text-slate-400 mt-0.5">
-                                  {supplier.id}
-                                </p>
-                              </div>
-                            </button>
-                          </td>
-
-                          {/* CONTACT */}
-                          <td className="px-3 py-4">
-                            <p className="text-xs font-medium text-slate-700">
-                              {
-                                supplier.contactPerson
-                              }
-                            </p>
-
-                            <p className="text-[11px] text-slate-400 mt-1">
-                              {supplier.phone}
-                            </p>
-                          </td>
-
-                          {/* GSTIN */}
-                          <td className="px-3 py-4">
-                            <span className="text-xs font-medium text-slate-600">
-                              {supplier.gstin}
-                            </span>
-                          </td>
-
-                          {/* LOCATION */}
-                          <td className="px-3 py-4">
-                            <div className="flex items-center gap-1.5">
-                              <MapPin className="w-3.5 h-3.5 text-slate-400" />
-
-                              <span className="text-xs text-slate-600">
-                                {supplier.city},{" "}
-                                {supplier.state}
+                    {suppliers.map((supplier) => (
+                      <tr
+                        key={supplier._id}
+                        className="hover:bg-slate-50/50 transition-colors"
+                      >
+                        {/* SUPPLIER */}
+                        <td className="px-5 py-4">
+                          <button
+                            type="button"
+                            onClick={() => openDetails(supplier)}
+                            className="flex items-center gap-3 text-left"
+                          >
+                            <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                              <span className="text-xs font-bold text-indigo-600">
+                                {getInitials(supplier.name)}
                               </span>
                             </div>
-                          </td>
 
-                          {/* STATUS */}
-                          <td className="px-3 py-4 text-center">
+                            <div>
+                              <p className="text-sm font-medium text-slate-800 hover:text-indigo-600">
+                                {supplier.name}
+                              </p>
+
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                {supplier.supplierId}
+                              </p>
+                            </div>
+                          </button>
+                        </td>
+
+                        {/* CONTACT */}
+                        <td className="px-3 py-4">
+                          <p className="text-xs font-medium text-slate-700">
+                            {supplier.contactPerson}
+                          </p>
+
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {supplier.phone}
+                          </p>
+                        </td>
+
+                        {/* GSTIN */}
+                        <td className="px-3 py-4">
+                          <span className="text-xs font-medium text-slate-600">
+                            {supplier.gstin}
+                          </span>
+                        </td>
+
+                        {/* LOCATION */}
+                        <td className="px-3 py-4">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400" />
+
+                            <span className="text-xs text-slate-600">
+                              {supplier.city}, {supplier.state}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* STATUS */}
+                        <td className="px-3 py-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => toggleStatus(supplier)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                              supplier.status === "Active"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                supplier.status === "Active"
+                                  ? "bg-emerald-500"
+                                  : "bg-slate-400"
+                              }`}
+                            />
+
+                            {supplier.status}
+                          </button>
+                        </td>
+
+                        {/* ACTIONS */}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center justify-end gap-1">
                             <button
                               type="button"
-                              onClick={() =>
-                                toggleStatus(
-                                  supplier
-                                )
-                              }
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${
-                                supplier.status ===
-                                "Active"
-                                  ? "bg-emerald-50 text-emerald-700"
-                                  : "bg-slate-100 text-slate-500"
-                              }`}
+                              onClick={() => openDetails(supplier)}
+                              className="px-2.5 py-2 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
                             >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  supplier.status ===
-                                  "Active"
-                                    ? "bg-emerald-500"
-                                    : "bg-slate-400"
-                                }`}
-                              />
-
-                              {
-                                supplier.status
-                              }
+                              View
                             </button>
-                          </td>
 
-                          {/* ACTIONS */}
-                          <td className="px-5 py-4">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openDetails(
-                                    supplier
-                                  )
-                                }
-                                className="px-2.5 py-2 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
-                              >
-                                View
-                              </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(supplier)}
+                              className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
 
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openEditModal(
-                                    supplier
-                                  )
-                                }
-                                className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleDelete(
-                                    supplier
-                                  )
-                                }
-                                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    )}
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(supplier)}
+                              className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
               {/* MOBILE / TABLET */}
               <div className="xl:hidden p-4 space-y-3">
-                {filteredSuppliers.map(
-                  (supplier) => (
-                    <div
-                      key={supplier.id}
-                      className="border border-slate-200 rounded-xl p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openDetails(
-                              supplier
-                            )
-                          }
-                          className="flex items-center gap-3 text-left min-w-0"
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                            <span className="text-xs font-bold text-indigo-600">
-                              {getInitials(
-                                supplier.name
-                              )}
-                            </span>
-                          </div>
-
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate">
-                              {supplier.name}
-                            </p>
-
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {supplier.id}
-                            </p>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openEditModal(
-                              supplier
-                            )
-                          }
-                          className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-slate-400 shrink-0" />
-
-                          <div className="min-w-0">
-                            <p className="text-[10px] text-slate-400">
-                              Contact Person
-                            </p>
-
-                            <p className="text-xs font-medium text-slate-700 truncate">
-                              {
-                                supplier.contactPerson
-                              }
-                            </p>
-                          </div>
+                {suppliers.map((supplier) => (
+                  <div
+                    key={supplier._id}
+                    className="border border-slate-200 rounded-xl p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openDetails(supplier)}
+                        className="flex items-center gap-3 text-left min-w-0"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-bold text-indigo-600">
+                            {getInitials(supplier.name)}
+                          </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">
+                            {supplier.name}
+                          </p>
 
-                          <div>
-                            <p className="text-[10px] text-slate-400">
-                              Phone
-                            </p>
-
-                            <p className="text-xs font-medium text-slate-700">
-                              {supplier.phone}
-                            </p>
-                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {supplier.supplierId}
+                          </p>
                         </div>
+                      </button>
 
-                        <div className="flex items-center gap-2">
-                          <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(supplier)}
+                        className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
 
-                          <div className="min-w-0">
-                            <p className="text-[10px] text-slate-400">
-                              Email
-                            </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-slate-400 shrink-0" />
 
-                            <p className="text-xs font-medium text-slate-700 truncate">
-                              {supplier.email ||
-                                "Not provided"}
-                            </p>
-                          </div>
-                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-slate-400">
+                            Contact Person
+                          </p>
 
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
-
-                          <div>
-                            <p className="text-[10px] text-slate-400">
-                              Location
-                            </p>
-
-                            <p className="text-xs font-medium text-slate-700">
-                              {supplier.city},{" "}
-                              {supplier.state}
-                            </p>
-                          </div>
+                          <p className="text-xs font-medium text-slate-700 truncate">
+                            {supplier.contactPerson}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleStatus(
-                              supplier
-                            )
-                          }
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${
-                            supplier.status ===
-                            "Active"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              supplier.status ===
-                              "Active"
-                                ? "bg-emerald-500"
-                                : "bg-slate-400"
-                            }`}
-                          />
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-slate-400 shrink-0" />
 
-                          {supplier.status}
-                        </button>
+                        <div>
+                          <p className="text-[10px] text-slate-400">Phone</p>
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openDetails(
-                                supplier
-                              )
-                            }
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
-                          >
-                            View
-                          </button>
+                          <p className="text-xs font-medium text-slate-700">
+                            {supplier.phone}
+                          </p>
+                        </div>
+                      </div>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDelete(
-                                supplier
-                              )
-                            }
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-slate-400">Email</p>
+
+                          <p className="text-xs font-medium text-slate-700 truncate">
+                            {supplier.email || "Not provided"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+
+                        <div>
+                          <p className="text-[10px] text-slate-400">Location</p>
+
+                          <p className="text-xs font-medium text-slate-700">
+                            {supplier.city}, {supplier.state}
+                          </p>
                         </div>
                       </div>
                     </div>
-                  )
-                )}
+
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => toggleStatus(supplier)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                          supplier.status === "Active"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            supplier.status === "Active"
+                              ? "bg-emerald-500"
+                              : "bg-slate-400"
+                          }`}
+                        />
+
+                        {supplier.status}
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openDetails(supplier)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                        >
+                          View
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(supplier)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </>
           )}
@@ -920,9 +856,7 @@ const Suppliers = () => {
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  {editingSupplier
-                    ? "Edit Supplier"
-                    : "Add Supplier"}
+                  {editingSupplier ? "Edit Supplier" : "Add Supplier"}
                 </h2>
 
                 <p className="text-xs text-slate-400 mt-1">
@@ -942,10 +876,7 @@ const Suppliers = () => {
             </div>
 
             {/* FORM */}
-            <form
-              onSubmit={handleSubmit}
-              className="overflow-y-auto"
-            >
+            <form onSubmit={handleSubmit} className="overflow-y-auto">
               <div className="p-6 space-y-6">
                 {/* BASIC INFORMATION */}
                 <div>
@@ -958,9 +889,7 @@ const Suppliers = () => {
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Supplier Name
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
@@ -977,17 +906,13 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Contact Person
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
                         type="text"
                         name="contactPerson"
-                        value={
-                          form.contactPerson
-                        }
+                        value={form.contactPerson}
                         onChange={handleChange}
                         placeholder="Contact person name"
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
@@ -998,9 +923,7 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Phone
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
@@ -1034,9 +957,7 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         GSTIN
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
@@ -1063,9 +984,7 @@ const Suppliers = () => {
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Address
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <textarea
@@ -1082,9 +1001,7 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         City
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
@@ -1101,9 +1018,7 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         State
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <select
@@ -1112,29 +1027,17 @@ const Suppliers = () => {
                         onChange={handleChange}
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
                       >
-                        <option value="Karnataka">
-                          Karnataka
-                        </option>
+                        <option value="Karnataka">Karnataka</option>
 
-                        <option value="Telangana">
-                          Telangana
-                        </option>
+                        <option value="Telangana">Telangana</option>
 
-                        <option value="Andhra Pradesh">
-                          Andhra Pradesh
-                        </option>
+                        <option value="Andhra Pradesh">Andhra Pradesh</option>
 
-                        <option value="Tamil Nadu">
-                          Tamil Nadu
-                        </option>
+                        <option value="Tamil Nadu">Tamil Nadu</option>
 
-                        <option value="Maharashtra">
-                          Maharashtra
-                        </option>
+                        <option value="Maharashtra">Maharashtra</option>
 
-                        <option value="Kerala">
-                          Kerala
-                        </option>
+                        <option value="Kerala">Kerala</option>
                       </select>
                     </div>
 
@@ -1142,9 +1045,7 @@ const Suppliers = () => {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         PIN Code
-                        <span className="text-rose-500 ml-1">
-                          *
-                        </span>
+                        <span className="text-rose-500 ml-1">*</span>
                       </label>
 
                       <input
@@ -1170,13 +1071,9 @@ const Suppliers = () => {
                         onChange={handleChange}
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
                       >
-                        <option value="Active">
-                          Active
-                        </option>
+                        <option value="Active">Active</option>
 
-                        <option value="Inactive">
-                          Inactive
-                        </option>
+                        <option value="Inactive">Inactive</option>
                       </select>
                     </div>
                   </div>
@@ -1188,16 +1085,23 @@ const Suppliers = () => {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-white transition-colors"
+                  disabled={submitting}
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-white transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+                  disabled={submitting}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {editingSupplier ? (
+                  {submitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      {editingSupplier ? "Updating..." : "Adding..."}
+                    </>
+                  ) : editingSupplier ? (
                     <>
                       <Edit3 className="w-4 h-4" />
                       Update Supplier
@@ -1229,9 +1133,7 @@ const Suppliers = () => {
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center">
                   <span className="text-sm font-bold text-indigo-600">
-                    {getInitials(
-                      selectedSupplier.name
-                    )}
+                    {getInitials(selectedSupplier.name)}
                   </span>
                 </div>
 
@@ -1241,7 +1143,7 @@ const Suppliers = () => {
                   </h2>
 
                   <p className="text-xs text-slate-400 mt-1">
-                    {selectedSupplier.id}
+                    {selectedSupplier.supplierId}
                   </p>
                 </div>
               </div>
@@ -1258,22 +1160,18 @@ const Suppliers = () => {
             {/* DETAILS */}
             <div className="p-6 space-y-5">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">
-                  Supplier Status
-                </span>
+                <span className="text-xs text-slate-500">Supplier Status</span>
 
                 <span
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${
-                    selectedSupplier.status ===
-                    "Active"
+                    selectedSupplier.status === "Active"
                       ? "bg-emerald-50 text-emerald-700"
                       : "bg-slate-100 text-slate-500"
                   }`}
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      selectedSupplier.status ===
-                      "Active"
+                      selectedSupplier.status === "Active"
                         ? "bg-emerald-500"
                         : "bg-slate-400"
                     }`}
@@ -1294,9 +1192,7 @@ const Suppliers = () => {
                   </div>
 
                   <p className="text-sm font-medium text-slate-700">
-                    {
-                      selectedSupplier.contactPerson
-                    }
+                    {selectedSupplier.contactPerson}
                   </p>
                 </div>
 
@@ -1304,9 +1200,7 @@ const Suppliers = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <Phone className="w-4 h-4 text-slate-400" />
 
-                    <span className="text-[10px] text-slate-400">
-                      Phone
-                    </span>
+                    <span className="text-[10px] text-slate-400">Phone</span>
                   </div>
 
                   <p className="text-sm font-medium text-slate-700">
@@ -1318,14 +1212,11 @@ const Suppliers = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <Mail className="w-4 h-4 text-slate-400" />
 
-                    <span className="text-[10px] text-slate-400">
-                      Email
-                    </span>
+                    <span className="text-[10px] text-slate-400">Email</span>
                   </div>
 
                   <p className="text-sm font-medium text-slate-700 break-all">
-                    {selectedSupplier.email ||
-                      "Not provided"}
+                    {selectedSupplier.email || "Not provided"}
                   </p>
                 </div>
 
@@ -1333,9 +1224,7 @@ const Suppliers = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <Building2 className="w-4 h-4 text-slate-400" />
 
-                    <span className="text-[10px] text-slate-400">
-                      GSTIN
-                    </span>
+                    <span className="text-[10px] text-slate-400">GSTIN</span>
                   </div>
 
                   <p className="text-sm font-medium text-slate-700">
@@ -1356,8 +1245,7 @@ const Suppliers = () => {
                 <p className="text-sm text-slate-600 leading-relaxed">
                   {selectedSupplier.address}
                   <br />
-                  {selectedSupplier.city},{" "}
-                  {selectedSupplier.state}{" "}
+                  {selectedSupplier.city}, {selectedSupplier.state}{" "}
                   {selectedSupplier.pincode}
                 </p>
               </div>
@@ -1369,9 +1257,7 @@ const Suppliers = () => {
                 type="button"
                 onClick={() => {
                   closeDetails();
-                  openEditModal(
-                    selectedSupplier
-                  );
+                  openEditModal(selectedSupplier);
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
