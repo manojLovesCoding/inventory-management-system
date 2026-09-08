@@ -11,6 +11,7 @@ import purchaseRouter from "./routes/purchaseRoutes.js";
 import categoryRouter from "./routes/categoryRoutes.js";
 import departmentRouter from "./routes/departmentRoutes.js";
 import inventoryRouter from "./routes/inventoryRoutes.js";
+import userRouter from "./routes/userRoutes.js";
 
 const app = express();
 
@@ -36,7 +37,7 @@ app.use("/api/purchases", purchaseRouter);
 app.use("/api/categories", categoryRouter);
 app.use("/api/departments", departmentRouter);
 app.use("/api/inventory", inventoryRouter);
-
+app.use("/api/users", userRouter);
 
 // Database
 await connectDB();
