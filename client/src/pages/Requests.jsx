@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Bell,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
@@ -16,67 +15,30 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-const departments = [
-  "Computer Science",
-  "Commerce",
-  "Kannada",
-  "English",
-  "Mathematics",
-  "Physics",
-  "Chemistry",
-  "Administration",
+import api from "../api/axios.js";
+
+const statusOptions = [
+  "All",
+  "Pending",
+  "Approved",
+  "Rejected",
+  "Issued",
 ];
 
-const inventoryItems = [
-  {
-    id: "ITM-0001",
-    name: "HP Desktop Computer",
-    category: "Electronics",
-    unit: "Nos",
-  },
-  {
-    id: "ITM-0002",
-    name: "Dell Monitor 24 inch",
-    category: "Electronics",
-    unit: "Nos",
-  },
-  {
-    id: "ITM-0003",
-    name: "Office Chair",
-    category: "Furniture",
-    unit: "Nos",
-  },
-  {
-    id: "ITM-0004",
-    name: "Computer Table",
-    category: "Furniture",
-    unit: "Nos",
-  },
-  {
-    id: "ITM-0005",
-    name: "A4 Paper",
-    category: "Stationery",
-    unit: "Reams",
-  },
-  {
-    id: "ITM-0006",
-    name: "Whiteboard Marker",
-    category: "Stationery",
-    unit: "Boxes",
-  },
-  {
-    id: "ITM-0007",
-    name: "Projector",
-    category: "Electronics",
-    unit: "Nos",
-  },
-  {
-    id: "ITM-0008",
-    name: "Laboratory Microscope",
-    category: "Laboratory",
-    unit: "Nos",
-  },
-];
+const priorityOptions = ["All", "High", "Medium", "Low"];
+
+const statusStyles = {
+  Pending: "bg-amber-50 text-amber-700 border-amber-200",
+  Approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Rejected: "bg-rose-50 text-rose-700 border-rose-200",
+  Issued: "bg-indigo-50 text-indigo-700 border-indigo-200",
+};
+
+const priorityStyles = {
+  High: "bg-rose-50 text-rose-700 border-rose-200",
+  Medium: "bg-amber-50 text-amber-700 border-amber-200",
+  Low: "bg-slate-100 text-slate-600 border-slate-200",
+};
 
 const initialRequests = [
   {
@@ -173,36 +135,10 @@ const initialRequests = [
     requestDate: "2026-08-17",
     requiredDate: "2026-09-15",
     purpose: "Laboratory expansion",
-    remarks: "Additional equipment required for practical sessions.",
+    remarks:
+      "Additional equipment required for practical sessions.",
   },
 ];
-
-const statusOptions = [
-  "All",
-  "Pending",
-  "Approved",
-  "Rejected",
-  "Issued",
-];
-
-const priorityOptions = ["All", "High", "Medium", "Low"];
-
-const statusStyles = {
-  Pending:
-    "bg-amber-50 text-amber-700 border-amber-200",
-  Approved:
-    "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Rejected:
-    "bg-rose-50 text-rose-700 border-rose-200",
-  Issued:
-    "bg-indigo-50 text-indigo-700 border-indigo-200",
-};
-
-const priorityStyles = {
-  High: "bg-rose-50 text-rose-700 border-rose-200",
-  Medium: "bg-amber-50 text-amber-700 border-amber-200",
-  Low: "bg-slate-100 text-slate-600 border-slate-200",
-};
 
 const formatDate = (date) => {
   if (!date) return "-";
@@ -213,27 +149,47 @@ const formatDate = (date) => {
       day: "2-digit",
       month: "short",
       year: "numeric",
-    }
+    },
   );
 };
 
 const Requests = () => {
-  const [requests, setRequests] =
-    useState(initialRequests);
+  const [requests, setRequests] = useState(initialRequests);
+
+  // --------------------------------------------------
+  // DEPARTMENTS
+  // --------------------------------------------------
+
+  const [departments, setDepartments] = useState([]);
+  const [departmentLoading, setDepartmentLoading] = useState(true);
+
+  // --------------------------------------------------
+  // INVENTORY
+  // --------------------------------------------------
+
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(true);
+
+  // --------------------------------------------------
+  // FILTERS
+  // --------------------------------------------------
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] =
-    useState("All");
-  const [priorityFilter, setPriorityFilter] =
-    useState("All");
-  const [departmentFilter, setDepartmentFilter] =
-    useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [priorityFilter, setPriorityFilter] = useState("All");
+  const [departmentFilter, setDepartmentFilter] = useState("All");
 
-  const [showCreateModal, setShowCreateModal] =
-    useState(false);
+  // --------------------------------------------------
+  // MODALS
+  // --------------------------------------------------
 
-  const [selectedRequest, setSelectedRequest] =
-    useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const [selectedRequest, setSelectedRequest] = useState(null);
+
+  // --------------------------------------------------
+  // NEW REQUEST
+  // --------------------------------------------------
 
   const [newRequest, setNewRequest] = useState({
     itemId: "",
@@ -246,16 +202,204 @@ const Requests = () => {
     remarks: "",
   });
 
+  // --------------------------------------------------
+  // GET DEPARTMENTS
+  // --------------------------------------------------
+
+  const fetchDepartments = async () => {
+    try {
+      setDepartmentLoading(true);
+
+      const response = await api.get("/departments");
+
+      /*
+       * Supports:
+       *
+       * { data: [...] }
+       * { departments: [...] }
+       * [...]
+       */
+      const data =
+        response.data?.data ??
+        response.data?.departments ??
+        response.data;
+
+      setDepartments(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to fetch departments:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load departments",
+      );
+
+      setDepartments([]);
+    } finally {
+      setDepartmentLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // FETCH INVENTORY
+  // --------------------------------------------------
+
+  const fetchInventory = async () => {
+    setInventoryLoading(true);
+
+    try {
+      const response = await api.get("/inventory");
+
+      const responseData = response.data;
+
+      const inventoryData =
+        responseData?.data ||
+        responseData?.inventory ||
+        responseData?.items ||
+        responseData ||
+        [];
+
+      if (!Array.isArray(inventoryData)) {
+        setInventoryItems([]);
+        return;
+      }
+
+      const normalizedItems = inventoryData.map(
+        (item, index) => {
+          const quantity = Number(item.quantity) || 0;
+
+          const available =
+            item.available !== undefined &&
+            item.available !== null
+              ? Number(item.available)
+              : quantity;
+
+          const minimumStock =
+            Number(item.minimumStock) || 0;
+
+          let calculatedStatus = item.status;
+
+          if (!calculatedStatus) {
+            if (available === 0) {
+              calculatedStatus = "Out of Stock";
+            } else if (
+              minimumStock > 0 &&
+              available <= minimumStock
+            ) {
+              calculatedStatus = "Low Stock";
+            } else {
+              calculatedStatus = "Available";
+            }
+          }
+
+          return {
+            ...item,
+
+            id:
+              item.id ||
+              item._id ||
+              item.itemCode ||
+              `ITM-${String(index + 1).padStart(4, "0")}`,
+
+            name:
+              item.name ||
+              item.itemName ||
+              item.productName ||
+              "Unnamed Item",
+
+            category:
+              typeof item.category === "object"
+                ? item.category?.name ||
+                  item.category?.categoryName ||
+                  ""
+                : item.category || "",
+
+            department:
+              typeof item.department === "object"
+                ? item.department?.name ||
+                  item.department?.departmentName ||
+                  ""
+                : item.department || "",
+
+            quantity,
+
+            available,
+
+            unit: item.unit || "Nos",
+
+            minimumStock,
+
+            status: calculatedStatus,
+
+            description: item.description || "",
+          };
+        },
+      );
+
+      setInventoryItems(normalizedItems);
+    } catch (error) {
+      console.error("Failed to fetch inventory:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load inventory items",
+      );
+
+      setInventoryItems([]);
+    } finally {
+      setInventoryLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // FETCH INITIAL DATA
+  // --------------------------------------------------
+
+  useEffect(() => {
+    fetchDepartments();
+    fetchInventory();
+  }, []);
+
+  // --------------------------------------------------
+  // DEPARTMENT OPTIONS
+  // --------------------------------------------------
+
+  const departmentOptions = useMemo(() => {
+    return departments
+      .filter(
+        (department) =>
+          department.status === undefined ||
+          department.status === "Active",
+      )
+      .map((department) => ({
+        id: department.id || department._id,
+        name: department.name,
+        code: department.code,
+      }))
+      .filter((department) => department.name);
+  }, [departments]);
+
+  // --------------------------------------------------
+  // FILTERED REQUESTS
+  // --------------------------------------------------
+
   const filteredRequests = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return requests.filter((request) => {
       const matchesSearch =
         !query ||
-        request.id.toLowerCase().includes(query) ||
-        request.itemName.toLowerCase().includes(query) ||
-        request.department.toLowerCase().includes(query) ||
-        request.requestedBy.toLowerCase().includes(query);
+        String(request.id || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(request.itemName || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(request.department || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(request.requestedBy || "")
+          .toLowerCase()
+          .includes(query);
 
       const matchesStatus =
         statusFilter === "All" ||
@@ -284,27 +428,50 @@ const Requests = () => {
     departmentFilter,
   ]);
 
+  // --------------------------------------------------
+  // STATS
+  // --------------------------------------------------
+
   const stats = useMemo(() => {
     return {
       total: requests.length,
+
       pending: requests.filter(
-        (request) => request.status === "Pending"
+        (request) => request.status === "Pending",
       ).length,
+
       approved: requests.filter(
-        (request) => request.status === "Approved"
+        (request) => request.status === "Approved",
       ).length,
+
       issued: requests.filter(
-        (request) => request.status === "Issued"
+        (request) => request.status === "Issued",
       ).length,
+
       rejected: requests.filter(
-        (request) => request.status === "Rejected"
+        (request) => request.status === "Rejected",
       ).length,
     };
   }, [requests]);
 
-  const selectedItem = inventoryItems.find(
-    (item) => item.id === newRequest.itemId
-  );
+  // --------------------------------------------------
+  // SELECTED INVENTORY ITEM
+  // --------------------------------------------------
+
+  const selectedItem = useMemo(() => {
+    return inventoryItems.find(
+      (item) =>
+        String(
+          item._id ||
+            item.id ||
+            item.itemCode,
+        ) === String(newRequest.itemId),
+    );
+  }, [inventoryItems, newRequest.itemId]);
+
+  // --------------------------------------------------
+  // CLOSE CREATE MODAL
+  // --------------------------------------------------
 
   const closeCreateModal = () => {
     setShowCreateModal(false);
@@ -321,8 +488,36 @@ const Requests = () => {
     });
   };
 
+  // --------------------------------------------------
+  // CREATE REQUEST
+  // --------------------------------------------------
+
   const handleCreateRequest = (e) => {
     e.preventDefault();
+
+    if (inventoryLoading) {
+      toast.error(
+        "Please wait while inventory items are loading",
+      );
+      return;
+    }
+
+    if (departmentLoading) {
+      toast.error(
+        "Please wait while departments are loading",
+      );
+      return;
+    }
+
+    if (inventoryItems.length === 0) {
+      toast.error("No inventory items available");
+      return;
+    }
+
+    if (departmentOptions.length === 0) {
+      toast.error("No active departments available");
+      return;
+    }
 
     if (!newRequest.itemId) {
       toast.error("Please select an inventory item");
@@ -362,36 +557,70 @@ const Requests = () => {
       return;
     }
 
-    const nextNumber =
-      requests.length + 1;
+    if (
+      selectedItem.available !== undefined &&
+      Number(newRequest.quantity) >
+        Number(selectedItem.available)
+    ) {
+      toast.error(
+        `Only ${selectedItem.available} ${selectedItem.unit} available`,
+      );
+      return;
+    }
+
+    const nextNumber = requests.length + 1;
+
+    const itemId =
+      selectedItem._id ||
+      selectedItem.id ||
+      selectedItem.itemCode;
 
     const request = {
       id: `REQ-2026-${String(nextNumber).padStart(
         3,
-        "0"
+        "0",
       )}`,
-      itemId: selectedItem.id,
+
+      itemId,
+
       itemName: selectedItem.name,
+
       category: selectedItem.category,
+
       department: newRequest.department,
+
       requestedBy: newRequest.requestedBy.trim(),
+
       quantity: Number(newRequest.quantity),
+
       unit: selectedItem.unit,
+
       priority: newRequest.priority,
+
       status: "Pending",
+
       requestDate:
         new Date().toISOString().split("T")[0],
+
       requiredDate: newRequest.requiredDate,
+
       purpose: newRequest.purpose.trim(),
+
       remarks: newRequest.remarks.trim(),
     };
 
     setRequests((prev) => [request, ...prev]);
 
-    toast.success("Item request created successfully");
+    toast.success(
+      "Item request created successfully",
+    );
 
     closeCreateModal();
   };
+
+  // --------------------------------------------------
+  // UPDATE STATUS
+  // --------------------------------------------------
 
   const updateStatus = (requestId, status) => {
     setRequests((prev) =>
@@ -401,8 +630,8 @@ const Requests = () => {
               ...request,
               status,
             }
-          : request
-      )
+          : request,
+      ),
     );
 
     setSelectedRequest((prev) =>
@@ -411,13 +640,17 @@ const Requests = () => {
             ...prev,
             status,
           }
-        : prev
+        : prev,
     );
 
     toast.success(
-      `Request ${status.toLowerCase()} successfully`
+      `Request ${status.toLowerCase()} successfully`,
     );
   };
+
+  // --------------------------------------------------
+  // CLEAR FILTERS
+  // --------------------------------------------------
 
   const clearFilters = () => {
     setSearch("");
@@ -430,6 +663,7 @@ const Requests = () => {
     <>
       <div className="space-y-6">
         {/* HEADER */}
+
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
@@ -459,6 +693,7 @@ const Requests = () => {
         </div>
 
         {/* STATS */}
+
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -552,6 +787,7 @@ const Requests = () => {
         </div>
 
         {/* FILTERS */}
+
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="px-5 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -564,7 +800,6 @@ const Requests = () => {
           </div>
 
           <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            {/* SEARCH */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 
@@ -579,7 +814,6 @@ const Requests = () => {
               />
             </div>
 
-            {/* STATUS */}
             <select
               value={statusFilter}
               onChange={(e) =>
@@ -594,7 +828,6 @@ const Requests = () => {
               ))}
             </select>
 
-            {/* PRIORITY */}
             <select
               value={priorityFilter}
               onChange={(e) =>
@@ -612,26 +845,30 @@ const Requests = () => {
               ))}
             </select>
 
-            {/* DEPARTMENT */}
             <select
               value={departmentFilter}
               onChange={(e) =>
                 setDepartmentFilter(e.target.value)
               }
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
+              disabled={departmentLoading}
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="All">
-                Department: All
+                {departmentLoading
+                  ? "Loading departments..."
+                  : "Department: All"}
               </option>
 
-              {departments.map((department) => (
-                <option
-                  key={department}
-                  value={department}
-                >
-                  {department}
-                </option>
-              ))}
+              {departmentOptions.map(
+                (department) => (
+                  <option
+                    key={department.id}
+                    value={department.name}
+                  >
+                    {department.name}
+                  </option>
+                ),
+              )}
             </select>
           </div>
 
@@ -652,6 +889,7 @@ const Requests = () => {
         </section>
 
         {/* REQUESTS */}
+
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
@@ -683,6 +921,7 @@ const Requests = () => {
           ) : (
             <>
               {/* DESKTOP */}
+
               <div className="hidden xl:block overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -729,17 +968,15 @@ const Requests = () => {
                           className="hover:bg-slate-50/50 transition-colors"
                         >
                           <td className="px-5 py-4">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800">
-                                {request.id}
-                              </p>
+                            <p className="text-sm font-semibold text-slate-800">
+                              {request.id}
+                            </p>
 
-                              <p className="text-[11px] text-slate-400 mt-0.5">
-                                {formatDate(
-                                  request.requestDate
-                                )}
-                              </p>
-                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {formatDate(
+                                request.requestDate,
+                              )}
+                            </p>
                           </td>
 
                           <td className="px-3 py-4">
@@ -808,7 +1045,7 @@ const Requests = () => {
                           <td className="px-3 py-4">
                             <span className="text-xs text-slate-600">
                               {formatDate(
-                                request.requiredDate
+                                request.requiredDate,
                               )}
                             </span>
                           </td>
@@ -818,7 +1055,7 @@ const Requests = () => {
                               type="button"
                               onClick={() =>
                                 setSelectedRequest(
-                                  request
+                                  request,
                                 )
                               }
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
@@ -828,13 +1065,14 @@ const Requests = () => {
                             </button>
                           </td>
                         </tr>
-                      )
+                      ),
                     )}
                   </tbody>
                 </table>
               </div>
 
               {/* MOBILE / TABLET */}
+
               <div className="xl:hidden p-4 space-y-3">
                 {filteredRequests.map(
                   (request) => (
@@ -864,7 +1102,7 @@ const Requests = () => {
                           type="button"
                           onClick={() =>
                             setSelectedRequest(
-                              request
+                              request,
                             )
                           }
                           className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 shrink-0"
@@ -946,13 +1184,13 @@ const Requests = () => {
 
                           <p className="text-xs font-medium text-slate-700 mt-0.5">
                             {formatDate(
-                              request.requiredDate
+                              request.requiredDate,
                             )}
                           </p>
                         </div>
                       </div>
                     </div>
-                  )
+                  ),
                 )}
               </div>
             </>
@@ -961,6 +1199,7 @@ const Requests = () => {
       </div>
 
       {/* CREATE REQUEST MODAL */}
+
       {showCreateModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
@@ -970,6 +1209,7 @@ const Requests = () => {
 
           <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
             {/* HEADER */}
+
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -996,6 +1236,7 @@ const Requests = () => {
             >
               <div className="p-6 space-y-5">
                 {/* ITEM + DEPARTMENT */}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1013,28 +1254,57 @@ const Requests = () => {
                             ...prev,
                             itemId:
                               e.target.value,
-                          })
+                            quantity: "",
+                          }),
                         )
                       }
                       required
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                      disabled={inventoryLoading}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50 disabled:text-slate-400"
                     >
                       <option value="">
-                        Select item
+                        {inventoryLoading
+                          ? "Loading inventory..."
+                          : inventoryItems.length ===
+                              0
+                            ? "No inventory items available"
+                            : "Select item"}
                       </option>
 
                       {inventoryItems.map(
-                        (item) => (
-                          <option
-                            key={item.id}
-                            value={item.id}
-                          >
-                            {item.name} —{" "}
-                            {item.category}
-                          </option>
-                        )
+                        (item) => {
+                          const itemKey =
+                            item._id ||
+                            item.id ||
+                            item.itemCode;
+
+                          return (
+                            <option
+                              key={itemKey}
+                              value={itemKey}
+                            >
+                              {item.name} —{" "}
+                              {item.category ||
+                                "Uncategorized"}
+                              {" · "}
+                              Available:{" "}
+                              {item.available}{" "}
+                              {item.unit}
+                            </option>
+                          );
+                        },
                       )}
                     </select>
+
+                    {selectedItem && (
+                      <p className="mt-1.5 text-[11px] text-slate-400">
+                        Available stock:{" "}
+                        <span className="font-medium text-slate-600">
+                          {selectedItem.available}{" "}
+                          {selectedItem.unit}
+                        </span>
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1055,31 +1325,41 @@ const Requests = () => {
                             ...prev,
                             department:
                               e.target.value,
-                          })
+                          }),
                         )
                       }
                       required
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
+                      disabled={departmentLoading}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
                     >
                       <option value="">
-                        Select department
+                        {departmentLoading
+                          ? "Loading departments..."
+                          : departmentOptions.length ===
+                              0
+                            ? "No departments available"
+                            : "Select department"}
                       </option>
 
-                      {departments.map(
+                      {departmentOptions.map(
                         (department) => (
                           <option
-                            key={department}
-                            value={department}
+                            key={department.id}
+                            value={department.name}
                           >
-                            {department}
+                            {department.name}
+                            {department.code
+                              ? ` (${department.code})`
+                              : ""}
                           </option>
-                        )
+                        ),
                       )}
                     </select>
                   </div>
                 </div>
 
                 {/* REQUESTER + QUANTITY */}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1102,9 +1382,8 @@ const Requests = () => {
                             (prev) => ({
                               ...prev,
                               requestedBy:
-                                e.target
-                                  .value,
-                            })
+                                e.target.value,
+                            }),
                           )
                         }
                         placeholder="Faculty / staff name"
@@ -1126,6 +1405,10 @@ const Requests = () => {
                       <input
                         type="number"
                         min="1"
+                        max={
+                          selectedItem?.available ??
+                          undefined
+                        }
                         value={
                           newRequest.quantity
                         }
@@ -1134,14 +1417,14 @@ const Requests = () => {
                             (prev) => ({
                               ...prev,
                               quantity:
-                                e.target
-                                  .value,
-                            })
+                                e.target.value,
+                            }),
                           )
                         }
                         placeholder="Enter quantity"
                         required
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
+                        disabled={!selectedItem}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 disabled:bg-slate-50"
                       />
 
                       {selectedItem && (
@@ -1154,6 +1437,7 @@ const Requests = () => {
                 </div>
 
                 {/* PRIORITY + DATE */}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1169,9 +1453,8 @@ const Requests = () => {
                           (prev) => ({
                             ...prev,
                             priority:
-                              e.target
-                                .value,
-                          })
+                              e.target.value,
+                          }),
                         )
                       }
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
@@ -1211,9 +1494,8 @@ const Requests = () => {
                             (prev) => ({
                               ...prev,
                               requiredDate:
-                                e.target
-                                  .value,
-                            })
+                                e.target.value,
+                            }),
                           )
                         }
                         required
@@ -1224,6 +1506,7 @@ const Requests = () => {
                 </div>
 
                 {/* PURPOSE */}
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Purpose
@@ -1249,6 +1532,7 @@ const Requests = () => {
                 </div>
 
                 {/* REMARKS */}
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Remarks
@@ -1270,6 +1554,7 @@ const Requests = () => {
                 </div>
 
                 {/* ITEM PREVIEW */}
+
                 {selectedItem && (
                   <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-100">
                     <div className="flex items-center gap-3">
@@ -1283,10 +1568,16 @@ const Requests = () => {
                         </p>
 
                         <p className="text-[11px] text-indigo-600 mt-0.5">
-                          {selectedItem.id} ·{" "}
-                          {selectedItem.category}{" "}
+                          {selectedItem.itemCode ||
+                            selectedItem.id ||
+                            selectedItem._id}{" "}
+                          ·{" "}
+                          {selectedItem.category ||
+                            "Uncategorized"}{" "}
                           · Unit:{" "}
-                          {selectedItem.unit}
+                          {selectedItem.unit}{" "}
+                          · Available:{" "}
+                          {selectedItem.available}
                         </p>
                       </div>
                     </div>
@@ -1295,6 +1586,7 @@ const Requests = () => {
               </div>
 
               {/* FOOTER */}
+
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row justify-end gap-3">
                 <button
                   type="button"
@@ -1306,10 +1598,21 @@ const Requests = () => {
 
                 <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium"
+                  disabled={
+                    inventoryLoading ||
+                    departmentLoading ||
+                    inventoryItems.length === 0 ||
+                    departmentOptions.length === 0
+                  }
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-4 h-4" />
-                  Create Request
+
+                  {departmentLoading
+                    ? "Loading Departments..."
+                    : inventoryLoading
+                      ? "Loading Inventory..."
+                      : "Create Request"}
                 </button>
               </div>
             </form>
@@ -1318,6 +1621,7 @@ const Requests = () => {
       )}
 
       {/* REQUEST DETAILS MODAL */}
+
       {selectedRequest && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
@@ -1328,7 +1632,6 @@ const Requests = () => {
           />
 
           <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-            {/* HEADER */}
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
@@ -1353,7 +1656,6 @@ const Requests = () => {
 
             <div className="overflow-y-auto">
               <div className="p-6 space-y-5">
-                {/* ITEM */}
                 <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100">
                   <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
                     <Package className="w-5 h-5 text-indigo-600" />
@@ -1376,7 +1678,6 @@ const Requests = () => {
                   </span>
                 </div>
 
-                {/* STATUS + PRIORITY */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="border border-slate-200 rounded-xl p-4">
                     <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
@@ -1411,7 +1712,6 @@ const Requests = () => {
                   </div>
                 </div>
 
-                {/* DETAILS */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                   <div>
                     <p className="text-[10px] text-slate-400 uppercase tracking-wide">
@@ -1440,7 +1740,7 @@ const Requests = () => {
 
                     <p className="text-sm font-medium text-slate-700 mt-1">
                       {formatDate(
-                        selectedRequest.requestDate
+                        selectedRequest.requestDate,
                       )}
                     </p>
                   </div>
@@ -1452,7 +1752,7 @@ const Requests = () => {
 
                     <p className="text-sm font-medium text-slate-700 mt-1">
                       {formatDate(
-                        selectedRequest.requiredDate
+                        selectedRequest.requiredDate,
                       )}
                     </p>
                   </div>
@@ -1482,6 +1782,7 @@ const Requests = () => {
               </div>
 
               {/* ACTIONS */}
+
               {selectedRequest.status ===
                 "Pending" && (
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100">
@@ -1496,7 +1797,7 @@ const Requests = () => {
                       onClick={() =>
                         updateStatus(
                           selectedRequest.id,
-                          "Approved"
+                          "Approved",
                         )
                       }
                       className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium"
@@ -1510,7 +1811,7 @@ const Requests = () => {
                       onClick={() =>
                         updateStatus(
                           selectedRequest.id,
-                          "Rejected"
+                          "Rejected",
                         )
                       }
                       className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium"
@@ -1540,7 +1841,7 @@ const Requests = () => {
                     onClick={() =>
                       updateStatus(
                         selectedRequest.id,
-                        "Issued"
+                        "Issued",
                       )
                     }
                     className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium"
@@ -1559,3 +1860,4 @@ const Requests = () => {
 };
 
 export default Requests;
+
