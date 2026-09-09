@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
@@ -9,9 +9,9 @@ import {
   Search,
   Truck,
   X,
-  XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import api from "../api/axios";
 
 const StockIn = () => {
   const [search, setSearch] = useState("");
@@ -19,103 +19,174 @@ const StockIn = () => {
   const [selectedStock, setSelectedStock] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const [stockInRecords] = useState([
-    {
-      id: "SIN-001",
-      referenceNo: "PO-2026-041",
-      supplier: "Karnataka Office Supplies",
-      item: "A4 Copier Paper",
-      category: "Stationery",
-      quantity: 100,
-      unitPrice: 285,
-      totalValue: 28500,
-      receivedDate: "2026-08-25",
-      receivedBy: "Inventory Officer",
-      status: "Received",
-      notes: "Monthly stationery supply.",
-    },
-    {
-      id: "SIN-002",
-      referenceNo: "PO-2026-038",
-      supplier: "Tech Solutions India",
-      item: "Desktop Computer",
-      category: "IT Equipment",
-      quantity: 5,
-      unitPrice: 48500,
-      totalValue: 242500,
-      receivedDate: "2026-08-22",
-      receivedBy: "Administrator",
-      status: "Received",
-      notes: "New computers for Computer Science Department.",
-    },
-    {
-      id: "SIN-003",
-      referenceNo: "PO-2026-035",
-      supplier: "Campus Furniture Works",
-      item: "Office Chair",
-      category: "Furniture",
-      quantity: 20,
-      unitPrice: 4200,
-      totalValue: 84000,
-      receivedDate: "2026-08-19",
-      receivedBy: "Inventory Officer",
-      status: "Received",
-      notes: "Furniture received for newly renovated office rooms.",
-    },
-    {
-      id: "SIN-004",
-      referenceNo: "PO-2026-032",
-      supplier: "Digital Education Systems",
-      item: "LED Projector",
-      category: "Electronics",
-      quantity: 3,
-      unitPrice: 38500,
-      totalValue: 115500,
-      receivedDate: "2026-08-16",
-      receivedBy: "Administrator",
-      status: "Pending",
-      notes: "Awaiting final inspection and verification.",
-    },
-    {
-      id: "SIN-005",
-      referenceNo: "PO-2026-028",
-      supplier: "Classroom Supplies Co.",
-      item: "Whiteboard Marker",
-      category: "Classroom Supplies",
-      quantity: 200,
-      unitPrice: 28,
-      totalValue: 5600,
-      receivedDate: "2026-08-12",
-      receivedBy: "Inventory Officer",
-      status: "Received",
-      notes: "Classroom consumables.",
-    },
-    {
-      id: "SIN-006",
-      referenceNo: "PO-2026-025",
-      supplier: "Karnataka Office Supplies",
-      item: "Ball Pen - Blue",
-      category: "Stationery",
-      quantity: 500,
-      unitPrice: 8,
-      totalValue: 4000,
-      receivedDate: "2026-08-08",
-      receivedBy: "Inventory Officer",
-      status: "Cancelled",
-      notes: "Purchase cancelled due to supplier delivery issue.",
-    },
-  ]);
+  const [stockInRecords, setStockInRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [formData, setFormData] = useState({
+    referenceNo: "",
+    receivedDate: "",
+    supplier: "",
+    itemId: "",
+    item: "",
+    category: "",
+    unit: "units",
+    quantity: "",
+    unitPrice: "",
+    receivedBy: "",
+    notes: "",
+  });
+
+  // =========================
+  // FETCH STOCK IN RECORDS
+  // =========================
+
+  const fetchStockIns = async () => {
+    try {
+      setLoading(true);
+
+      const response = await api.get("/stock-in");
+
+      if (response.data?.success) {
+        setStockInRecords(response.data.stockIns || []);
+      } else {
+        toast.error(
+          response.data?.message || "Failed to fetch stock-in records",
+        );
+      }
+    } catch (error) {
+      console.error("Fetch stock in error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load stock-in records",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStockIns();
+  }, []);
+
+  // =========================
+  // FORM CHANGE
+  // =========================
+
+  const handleFormChange = (event) => {
+    const { name, value } = event.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // =========================
+  // RESET FORM
+  // =========================
+
+  const resetForm = () => {
+    setFormData({
+      referenceNo: "",
+      receivedDate: "",
+      supplier: "",
+      itemId: "",
+      item: "",
+      category: "",
+      unit: "units",
+      quantity: "",
+      unitPrice: "",
+      receivedBy: "",
+      notes: "",
+    });
+  };
+
+  // =========================
+  // CREATE STOCK IN
+  // =========================
+
+  const handleSaveStock = async (event) => {
+    event.preventDefault();
+
+    try {
+      const payload = {
+        referenceNo: formData.referenceNo.trim(),
+        receivedDate: formData.receivedDate,
+        supplier: formData.supplier.trim(),
+        receivedBy: formData.receivedBy.trim(),
+
+        item: {
+          itemId: formData.itemId.trim(),
+          item: formData.item.trim(),
+          category: formData.category.trim(),
+          unit: formData.unit.trim() || "units",
+          quantity: Number(formData.quantity),
+          unitPrice: Number(formData.unitPrice),
+        },
+
+        notes: formData.notes.trim(),
+      };
+
+      const response = await api.post(
+        "/stock-in",
+        payload,
+      );
+
+      if (response.data?.success) {
+        toast.success(
+          response.data.message ||
+            "Stock In record created successfully",
+        );
+
+        setShowAddModal(false);
+        resetForm();
+
+        await fetchStockIns();
+      } else {
+        toast.error(
+          response.data?.message ||
+            "Failed to create Stock In record",
+        );
+      }
+    } catch (error) {
+      console.error("Create stock in error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to create Stock In record",
+      );
+    }
+  };
+
+  // =========================
+  // FILTER
+  // =========================
 
   const filteredRecords = useMemo(() => {
     return stockInRecords.filter((record) => {
-      const query = search.toLowerCase();
+      const query = search.toLowerCase().trim();
+
+      const supplierName =
+        typeof record.supplier === "object"
+          ? record.supplier?.name || ""
+          : record.supplier || "";
+
+      const itemName = record.item?.item || "";
+      const itemId = record.item?.itemId || "";
+      const category = record.item?.category || "";
 
       const matchesSearch =
-        record.id.toLowerCase().includes(query) ||
-        record.referenceNo.toLowerCase().includes(query) ||
-        record.item.toLowerCase().includes(query) ||
-        record.supplier.toLowerCase().includes(query) ||
-        record.category.toLowerCase().includes(query);
+        record.stockInNo
+          ?.toLowerCase()
+          .includes(query) ||
+        record.referenceNo
+          ?.toLowerCase()
+          .includes(query) ||
+        itemName.toLowerCase().includes(query) ||
+        itemId.toLowerCase().includes(query) ||
+        supplierName.toLowerCase().includes(query) ||
+        category.toLowerCase().includes(query);
 
       const matchesStatus =
         statusFilter === "All" ||
@@ -124,6 +195,10 @@ const StockIn = () => {
       return matchesSearch && matchesStatus;
     });
   }, [stockInRecords, search, statusFilter]);
+
+  // =========================
+  // SUMMARY
+  // =========================
 
   const totalRecords = stockInRecords.length;
 
@@ -137,15 +212,27 @@ const StockIn = () => {
 
   const totalValue = stockInRecords
     .filter((record) => record.status === "Received")
-    .reduce((sum, record) => sum + record.totalValue, 0);
+    .reduce(
+      (sum, record) =>
+        sum + Number(record.item?.totalValue || 0),
+      0,
+    );
+
+  // =========================
+  // FORMAT CURRENCY
+  // =========================
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(Number(value) || 0);
   };
+
+  // =========================
+  // STATUS STYLE
+  // =========================
 
   const getStatusStyle = (status) => {
     switch (status) {
@@ -163,11 +250,32 @@ const StockIn = () => {
     }
   };
 
-  const handleSaveStock = (event) => {
-    event.preventDefault();
+  // =========================
+  // SUPPLIER NAME
+  // =========================
 
-    toast.success("Stock In record created successfully");
-    setShowAddModal(false);
+  const getSupplierName = (supplier) => {
+    if (!supplier) return "-";
+
+    if (typeof supplier === "object") {
+      return supplier.name || supplier.supplierId || "-";
+    }
+
+    return supplier;
+  };
+
+  // =========================
+  // DATE FORMAT
+  // =========================
+
+  const formatDate = (date) => {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleDateString("en-IN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
   };
 
   return (
@@ -271,231 +379,269 @@ const StockIn = () => {
           </div>
         </div>
 
-        {/* DESKTOP */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Stock In
-                </th>
+        {/* LOADING */}
+        {loading ? (
+          <div className="py-16 text-center">
+            <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Item
-                </th>
+            <p className="text-sm text-slate-500 mt-3">
+              Loading stock-in records...
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* DESKTOP */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Stock In
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Supplier
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Item
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Quantity
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Supplier
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Value
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Quantity
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Date
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Value
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Status
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Date
+                    </th>
 
-                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Status
+                    </th>
 
-            <tbody className="divide-y divide-slate-100">
-              {filteredRecords.map((record) => (
-                <tr
-                  key={record.id}
-                  className="hover:bg-slate-50/70 transition-colors"
-                >
-                  {/* STOCK ID */}
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-indigo-600">
-                      {record.id}
-                    </p>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
 
-                    <p className="text-xs text-slate-400 mt-1">
-                      {record.referenceNo}
-                    </p>
-                  </td>
-
-                  {/* ITEM */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                        <Package className="w-4 h-4 text-slate-500" />
-                      </div>
-
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {record.item}
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRecords.map((record) => (
+                    <tr
+                      key={record._id}
+                      className="hover:bg-slate-50/70 transition-colors"
+                    >
+                      {/* STOCK ID */}
+                      <td className="px-5 py-4">
+                        <p className="text-sm font-medium text-indigo-600">
+                          {record.stockInNo}
                         </p>
 
                         <p className="text-xs text-slate-400 mt-1">
-                          {record.category}
+                          {record.referenceNo}
+                        </p>
+                      </td>
+
+                      {/* ITEM */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                            <Package className="w-4 h-4 text-slate-500" />
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">
+                              {record.item?.item}
+                            </p>
+
+                            <p className="text-xs text-slate-400 mt-1">
+                              {record.item?.category}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* SUPPLIER */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <Truck className="w-4 h-4 text-slate-400" />
+
+                          <span className="text-sm text-slate-700">
+                            {getSupplierName(record.supplier)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* QUANTITY */}
+                      <td className="px-5 py-4">
+                        <span className="text-sm font-semibold text-slate-800">
+                          {record.item?.quantity}
+                        </span>
+
+                        <span className="text-xs text-slate-400 ml-1">
+                          {record.item?.unit || "units"}
+                        </span>
+                      </td>
+
+                      {/* VALUE */}
+                      <td className="px-5 py-4">
+                        <p className="text-sm font-medium text-slate-800">
+                          {formatCurrency(
+                            record.item?.totalValue,
+                          )}
+                        </p>
+
+                        <p className="text-xs text-slate-400 mt-1">
+                          {formatCurrency(
+                            record.item?.unitPrice,
+                          )}{" "}
+                          / unit
+                        </p>
+                      </td>
+
+                      {/* DATE */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                          <CalendarDays className="w-4 h-4 text-slate-400" />
+
+                          {formatDate(
+                            record.receivedDate,
+                          )}
+                        </div>
+                      </td>
+
+                      {/* STATUS */}
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
+                            record.status,
+                          )}`}
+                        >
+                          {record.status}
+                        </span>
+                      </td>
+
+                      {/* ACTION */}
+                      <td className="px-5 py-4">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() =>
+                              setSelectedStock(record)
+                            }
+                            className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
+                            title="View details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {filteredRecords.length === 0 && (
+                <EmptyState />
+              )}
+            </div>
+
+            {/* MOBILE */}
+            <div className="lg:hidden divide-y divide-slate-100">
+              {filteredRecords.map((record) => (
+                <div
+                  key={record._id}
+                  className="p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                        <Package className="w-4 h-4 text-slate-500" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {record.item?.item}
+                        </p>
+
+                        <p className="text-xs text-indigo-600 mt-1">
+                          {record.stockInNo}
                         </p>
                       </div>
                     </div>
-                  </td>
 
-                  {/* SUPPLIER */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-slate-400" />
-
-                      <span className="text-sm text-slate-700">
-                        {record.supplier}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* QUANTITY */}
-                  <td className="px-5 py-4">
-                    <span className="text-sm font-semibold text-slate-800">
-                      {record.quantity}
-                    </span>
-
-                    <span className="text-xs text-slate-400 ml-1">
-                      units
-                    </span>
-                  </td>
-
-                  {/* VALUE */}
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-slate-800">
-                      {formatCurrency(record.totalValue)}
-                    </p>
-
-                    <p className="text-xs text-slate-400 mt-1">
-                      {formatCurrency(record.unitPrice)} / unit
-                    </p>
-                  </td>
-
-                  {/* DATE */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <CalendarDays className="w-4 h-4 text-slate-400" />
-                      {record.receivedDate}
-                    </div>
-                  </td>
-
-                  {/* STATUS */}
-                  <td className="px-5 py-4">
                     <span
-                      className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
+                      className={`shrink-0 inline-flex px-2 py-1 rounded-full border text-[11px] font-medium ${getStatusStyle(
                         record.status,
                       )}`}
                     >
                       {record.status}
                     </span>
-                  </td>
-
-                  {/* ACTION */}
-                  <td className="px-5 py-4">
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() =>
-                          setSelectedStock(record)
-                        }
-                        className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
-                        title="View details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {filteredRecords.length === 0 && <EmptyState />}
-        </div>
-
-        {/* MOBILE */}
-        <div className="lg:hidden divide-y divide-slate-100">
-          {filteredRecords.map((record) => (
-            <div key={record.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                    <Package className="w-4 h-4 text-slate-500" />
                   </div>
 
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
-                      {record.item}
-                    </p>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <Info
+                      label="Reference"
+                      value={record.referenceNo}
+                    />
 
-                    <p className="text-xs text-indigo-600 mt-1">
-                      {record.id}
-                    </p>
+                    <Info
+                      label="Quantity"
+                      value={`${record.item?.quantity || 0} ${
+                        record.item?.unit || "units"
+                      }`}
+                    />
+
+                    <Info
+                      label="Supplier"
+                      value={getSupplierName(
+                        record.supplier,
+                      )}
+                    />
+
+                    <Info
+                      label="Value"
+                      value={formatCurrency(
+                        record.item?.totalValue,
+                      )}
+                    />
+
+                    <Info
+                      label="Received Date"
+                      value={formatDate(
+                        record.receivedDate,
+                      )}
+                    />
+
+                    <Info
+                      label="Category"
+                      value={record.item?.category}
+                    />
+                  </div>
+
+                  <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
+                    <button
+                      onClick={() =>
+                        setSelectedStock(record)
+                      }
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      <Eye className="w-4 h-4" />
+                      View Details
+                    </button>
                   </div>
                 </div>
+              ))}
 
-                <span
-                  className={`shrink-0 inline-flex px-2 py-1 rounded-full border text-[11px] font-medium ${getStatusStyle(
-                    record.status,
-                  )}`}
-                >
-                  {record.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <Info
-                  label="Reference"
-                  value={record.referenceNo}
-                />
-
-                <Info
-                  label="Quantity"
-                  value={`${record.quantity} units`}
-                />
-
-                <Info
-                  label="Supplier"
-                  value={record.supplier}
-                />
-
-                <Info
-                  label="Value"
-                  value={formatCurrency(record.totalValue)}
-                />
-
-                <Info
-                  label="Received Date"
-                  value={record.receivedDate}
-                />
-
-                <Info
-                  label="Category"
-                  value={record.category}
-                />
-              </div>
-
-              <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
-                <button
-                  onClick={() => setSelectedStock(record)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
-                >
-                  <Eye className="w-4 h-4" />
-                  View Details
-                </button>
-              </div>
+              {filteredRecords.length === 0 && (
+                <EmptyState />
+              )}
             </div>
-          ))}
-
-          {filteredRecords.length === 0 && <EmptyState />}
-        </div>
+          </>
+        )}
       </div>
 
       {/* DETAILS MODAL */}
@@ -510,7 +656,7 @@ const StockIn = () => {
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <p className="text-xs text-indigo-600 font-medium">
-                  {selectedStock.id}
+                  {selectedStock.stockInNo}
                 </p>
 
                 <h2 className="text-lg font-semibold text-slate-900 mt-1">
@@ -536,11 +682,11 @@ const StockIn = () => {
 
                   <div>
                     <h3 className="font-semibold text-slate-900">
-                      {selectedStock.item}
+                      {selectedStock.item?.item}
                     </h3>
 
                     <p className="text-sm text-slate-500 mt-1">
-                      {selectedStock.category}
+                      {selectedStock.item?.category}
                     </p>
                   </div>
                 </div>
@@ -577,31 +723,37 @@ const StockIn = () => {
               <div className="grid grid-cols-2 gap-4">
                 <Detail
                   label="Supplier"
-                  value={selectedStock.supplier}
+                  value={getSupplierName(
+                    selectedStock.supplier,
+                  )}
                 />
 
                 <Detail
                   label="Quantity"
-                  value={`${selectedStock.quantity} units`}
+                  value={`${selectedStock.item?.quantity || 0} ${
+                    selectedStock.item?.unit || "units"
+                  }`}
                 />
 
                 <Detail
                   label="Unit Price"
                   value={formatCurrency(
-                    selectedStock.unitPrice,
+                    selectedStock.item?.unitPrice,
                   )}
                 />
 
                 <Detail
                   label="Total Value"
                   value={formatCurrency(
-                    selectedStock.totalValue,
+                    selectedStock.item?.totalValue,
                   )}
                 />
 
                 <Detail
                   label="Received Date"
-                  value={selectedStock.receivedDate}
+                  value={formatDate(
+                    selectedStock.receivedDate,
+                  )}
                 />
 
                 <Detail
@@ -610,6 +762,12 @@ const StockIn = () => {
                 />
               </div>
 
+              {/* ITEM ID */}
+              <Detail
+                label="Item ID"
+                value={selectedStock.item?.itemId}
+              />
+
               {/* NOTES */}
               <div>
                 <p className="text-xs text-slate-400">
@@ -617,7 +775,7 @@ const StockIn = () => {
                 </p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
-                  {selectedStock.notes}
+                  {selectedStock.notes || "No notes added."}
                 </p>
               </div>
             </div>
@@ -656,7 +814,10 @@ const StockIn = () => {
               </div>
 
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
                 className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
@@ -669,39 +830,96 @@ const StockIn = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     label="Reference / PO Number"
+                    name="referenceNo"
+                    value={formData.referenceNo}
+                    onChange={handleFormChange}
                     placeholder="PO-2026-045"
                     required
                   />
 
                   <FormField
                     label="Received Date"
+                    name="receivedDate"
                     type="date"
+                    value={formData.receivedDate}
+                    onChange={handleFormChange}
                     required
                   />
 
                   <FormField
-                    label="Supplier"
-                    placeholder="Select supplier"
+                    label="Supplier ID"
+                    name="supplier"
+                    value={formData.supplier}
+                    onChange={handleFormChange}
+                    placeholder="Enter supplier ObjectId"
+                    required
+                  />
+
+                  <FormField
+                    label="Item ID"
+                    name="itemId"
+                    value={formData.itemId}
+                    onChange={handleFormChange}
+                    placeholder="ITEM-001"
                     required
                   />
 
                   <FormField
                     label="Item"
-                    placeholder="Select item"
+                    name="item"
+                    value={formData.item}
+                    onChange={handleFormChange}
+                    placeholder="A4 Copier Paper"
+                    required
+                  />
+
+                  <FormField
+                    label="Category"
+                    name="category"
+                    value={formData.category}
+                    onChange={handleFormChange}
+                    placeholder="Stationery"
                     required
                   />
 
                   <FormField
                     label="Quantity"
+                    name="quantity"
                     type="number"
+                    value={formData.quantity}
+                    onChange={handleFormChange}
                     placeholder="0"
+                    min="0.01"
+                    step="0.01"
                     required
                   />
 
                   <FormField
                     label="Unit Price"
+                    name="unitPrice"
                     type="number"
+                    value={formData.unitPrice}
+                    onChange={handleFormChange}
                     placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+
+                  <FormField
+                    label="Unit"
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleFormChange}
+                    placeholder="units"
+                  />
+
+                  <FormField
+                    label="Received By"
+                    name="receivedBy"
+                    value={formData.receivedBy}
+                    onChange={handleFormChange}
+                    placeholder="Inventory Officer"
                     required
                   />
                 </div>
@@ -713,7 +931,10 @@ const StockIn = () => {
                   </label>
 
                   <textarea
+                    name="notes"
                     rows="3"
+                    value={formData.notes}
+                    onChange={handleFormChange}
                     placeholder="Enter any additional information..."
                     className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
@@ -730,7 +951,10 @@ const StockIn = () => {
               <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetForm();
+                  }}
                   className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
                 >
                   Cancel
@@ -794,10 +1018,12 @@ const SummaryCard = ({
 const Info = ({ label, value }) => {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-[11px] text-slate-400">
+        {label}
+      </p>
 
       <p className="text-xs text-slate-700 mt-1 truncate">
-        {value}
+        {value || "-"}
       </p>
     </div>
   );
@@ -810,10 +1036,12 @@ const Info = ({ label, value }) => {
 const Detail = ({ label, value }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-[11px] text-slate-400">
+        {label}
+      </p>
 
       <p className="text-sm font-medium text-slate-800 mt-1">
-        {value}
+        {value || "-"}
       </p>
     </div>
   );
@@ -825,23 +1053,36 @@ const Detail = ({ label, value }) => {
 
 const FormField = ({
   label,
+  name,
   type = "text",
   placeholder,
   required,
+  value,
+  onChange,
+  min,
+  step,
 }) => {
   return (
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
+
         {required && (
-          <span className="text-rose-500 ml-1">*</span>
+          <span className="text-rose-500 ml-1">
+            *
+          </span>
         )}
       </label>
 
       <input
         type={type}
+        name={name}
+        value={value}
+        onChange={onChange}
         placeholder={placeholder}
         required={required}
+        min={min}
+        step={step}
         className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
       />
     </div>
