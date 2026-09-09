@@ -28,6 +28,13 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
 
+    department: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Department",
+  default: null,
+},
+
+
     status: {
       type: String,
       enum: ["active", "inactive"],

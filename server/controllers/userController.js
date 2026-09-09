@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import User from "../models/User.js";
+import Department from "../models/Department.js";
 
 
 const allowedRoles = ["admin", "store", "department"];
@@ -15,8 +16,10 @@ const allowedStatuses = ["active", "inactive"];
 export const getUsers = async (req, res) => {
   try {
     const users = await User.find({})
-      .select("-password")
-      .sort({ createdAt: -1 });
+  .select("-password")
+  .populate("department", "departmentId code name")
+  .sort({ createdAt: -1 });
+
 
     res.status(200).json({
       success: true,
@@ -82,12 +85,14 @@ export const getUserById = async (req, res) => {
 export const createUser = async (req, res) => {
   try {
     const {
-      name,
-      email,
-      password,
-      role,
-      status = "active",
-    } = req.body;
+  name,
+  email,
+  password,
+  role,
+  status = "active",
+  department = null,
+} = req.body;
+
 
     // Required fields
     if (!name || !email || !password || !role) {
@@ -112,6 +117,27 @@ export const createUser = async (req, res) => {
         message: "Invalid status",
       });
     }
+
+    if (department) {
+  if (!mongoose.Types.ObjectId.isValid(department)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid department",
+    });
+  }
+
+  const departmentExists = await Department.findById(
+    department
+  );
+
+  if (!departmentExists) {
+    return res.status(404).json({
+      success: false,
+      message: "Department not found",
+    });
+  }
+}
+
 
     // Password validation
     if (password.length < 6) {
@@ -140,12 +166,14 @@ export const createUser = async (req, res) => {
 
     // Create user
     const user = await User.create({
-      name: name.trim(),
-      email: normalizedEmail,
-      password: hashedPassword,
-      role,
-      status,
-    });
+  name: name.trim(),
+  email: normalizedEmail,
+  password: hashedPassword,
+  role,
+  status,
+  department: department || null,
+});
+
 
     // Remove password from response
     const userResponse = user.toObject();
@@ -185,12 +213,14 @@ export const updateUser = async (req, res) => {
     const { id } = req.params;
 
     const {
-      name,
-      email,
-      password,
-      role,
-      status,
-    } = req.body;
+  name,
+  email,
+  password,
+  role,
+  status,
+  department,
+} = req.body;
+
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -277,6 +307,35 @@ export const updateUser = async (req, res) => {
 
       user.status = status;
     }
+
+    /*
+ * DEPARTMENT
+ */
+if (department !== undefined) {
+  if (department === null || department === "") {
+    user.department = null;
+  } else {
+    if (!mongoose.Types.ObjectId.isValid(department)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid department",
+      });
+    }
+
+    const departmentExists =
+      await Department.findById(department);
+
+    if (!departmentExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found",
+      });
+    }
+
+    user.department = department;
+  }
+}
+
 
     /*
      * PASSWORD

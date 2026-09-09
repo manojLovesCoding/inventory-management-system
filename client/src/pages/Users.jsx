@@ -12,6 +12,7 @@ import {
   UserPlus,
   UserX,
   X,
+  Building2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -49,10 +50,12 @@ const emptyForm = {
   password: "",
   role: "department",
   status: "active",
+  department: "",
 };
 
 const Users = () => {
   const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -83,13 +86,6 @@ const Users = () => {
 
       const response = await api.get("/users");
 
-      /*
-       * Supports either:
-       * { users: [] }
-       * or
-       * { data: [] }
-       */
-
       const fetchedUsers =
         response.data?.users ||
         response.data?.data ||
@@ -117,8 +113,44 @@ const Users = () => {
     }
   };
 
+  /*
+   * --------------------------------------------------
+   * GET ALL DEPARTMENTS
+   * --------------------------------------------------
+   */
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get("/departments");
+
+      const fetchedDepartments =
+        response.data?.departments ||
+        response.data?.data ||
+        [];
+
+      setDepartments(
+        Array.isArray(fetchedDepartments)
+          ? fetchedDepartments
+          : []
+      );
+    } catch (error) {
+      console.error(
+        "Failed to fetch departments:",
+        error
+      );
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load departments"
+      );
+
+      setDepartments([]);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchDepartments();
   }, []);
 
   /*
@@ -131,12 +163,20 @@ const Users = () => {
     const query = search.toLowerCase().trim();
 
     return users.filter((user) => {
+      const departmentName =
+        user.department?.name ||
+        user.departmentName ||
+        "";
+
       const matchesSearch =
         !query ||
         user.name
           ?.toLowerCase()
           .includes(query) ||
         user.email
+          ?.toLowerCase()
+          .includes(query) ||
+        departmentName
           ?.toLowerCase()
           .includes(query);
 
@@ -231,6 +271,30 @@ const Users = () => {
     }
   };
 
+  const getDepartmentName = (user) => {
+    if (!user?.department) {
+      return "Not assigned";
+    }
+
+    if (typeof user.department === "object") {
+      return (
+        user.department.name ||
+        user.department.code ||
+        "Not assigned"
+      );
+    }
+
+    const department = departments.find(
+      (item) => item._id === user.department
+    );
+
+    return (
+      department?.name ||
+      department?.code ||
+      "Not assigned"
+    );
+  };
+
   /*
    * --------------------------------------------------
    * MODAL
@@ -257,6 +321,10 @@ const Users = () => {
       password: "",
       role: user.role || "department",
       status: user.status || "active",
+      department:
+        user.department?._id ||
+        user.department ||
+        "",
     });
 
     setShowModal(true);
@@ -281,11 +349,32 @@ const Users = () => {
    */
 
   const handleChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+
+      /*
+       * Department is only applicable
+       * to Department Users.
+       */
+      if (
+        field === "role" &&
+        value !== "department"
+      ) {
+        updated.department = "";
+      }
+
+      return updated;
+    });
   };
+
+  /*
+   * --------------------------------------------------
+   * SUBMIT USER
+   * --------------------------------------------------
+   */
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -310,8 +399,6 @@ const Users = () => {
 
     /*
      * PASSWORD
-     *
-     * Required while creating.
      */
 
     if (!editingUser && !formData.password) {
@@ -328,10 +415,6 @@ const Users = () => {
       );
       return;
     }
-
-    /*
-     * PASSWORD WHILE EDITING
-     */
 
     if (
       editingUser &&
@@ -357,6 +440,22 @@ const Users = () => {
       return;
     }
 
+    /*
+     * DEPARTMENT
+     *
+     * Required for Department Users.
+     */
+
+    if (
+      formData.role === "department" &&
+      !formData.department
+    ) {
+      toast.error(
+        "Please assign a department to this user"
+      );
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -376,6 +475,15 @@ const Users = () => {
           password: formData.password,
           role: formData.role,
           status: formData.status,
+
+          /*
+           * Only department users get
+           * a department assignment.
+           */
+          department:
+            formData.role === "department"
+              ? formData.department
+              : null,
         };
 
         const response = await api.post(
@@ -386,13 +494,6 @@ const Users = () => {
         const createdUser =
           response.data?.user ||
           response.data?.data;
-
-        /*
-         * If backend returns the created user,
-         * add it directly.
-         *
-         * Otherwise refresh the list.
-         */
 
         if (createdUser) {
           setUsers((prev) => [
@@ -424,11 +525,20 @@ const Users = () => {
             .toLowerCase(),
           role: formData.role,
           status: formData.status,
+
+          /*
+           * Remove department assignment when
+           * changing the user to another role.
+           */
+          department:
+            formData.role === "department"
+              ? formData.department
+              : null,
         };
 
         /*
-         * Only send password if the admin
-         * entered a new one.
+         * Only send password if a new one
+         * has been entered.
          */
 
         if (formData.password) {
@@ -570,13 +680,6 @@ const Users = () => {
 
     if (!target) return;
 
-    /*
-     * Protect admin accounts from deletion
-     * on frontend as an extra UI safeguard.
-     *
-     * Backend must also enforce this if required.
-     */
-
     if (target.role === "admin") {
       toast.error(
         "Administrator users cannot be deleted"
@@ -668,8 +771,8 @@ const Users = () => {
               </h1>
 
               <p className="text-sm text-slate-500 mt-1">
-                Manage system users, roles and access
-                status.
+                Manage system users, roles, departments
+                and access status.
               </p>
             </div>
           </div>
@@ -690,7 +793,7 @@ const Users = () => {
         {/* SUMMARY CARDS */}
 
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          {/* TOTAL USERS */}
+          {/* TOTAL */}
 
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -710,7 +813,7 @@ const Users = () => {
             </div>
           </div>
 
-          {/* ACTIVE USERS */}
+          {/* ACTIVE */}
 
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -730,7 +833,7 @@ const Users = () => {
             </div>
           </div>
 
-          {/* INACTIVE USERS */}
+          {/* INACTIVE */}
 
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -750,7 +853,7 @@ const Users = () => {
             </div>
           </div>
 
-          {/* ADMINISTRATORS */}
+          {/* ADMINS */}
 
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -790,7 +893,7 @@ const Users = () => {
                   onClick={(e) =>
                     e.stopPropagation()
                   }
-                  placeholder="Search by name or email..."
+                  placeholder="Search by name, email or department..."
                   className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                 />
               </div>
@@ -866,8 +969,6 @@ const Users = () => {
               )}
             </div>
           </div>
-
-          {/* RESULT COUNT */}
 
           <div className="px-4 pb-4">
             <p className="text-xs text-slate-400">
@@ -945,6 +1046,10 @@ const Users = () => {
                         Role
                       </th>
 
+                      <th className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Department
+                      </th>
+
                       <th className="text-center px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Status
                       </th>
@@ -1011,6 +1116,27 @@ const Users = () => {
                               user.role
                             )}
                           </span>
+                        </td>
+
+                        {/* DEPARTMENT */}
+
+                        <td className="px-3 py-4">
+                          {user.role ===
+                          "department" ? (
+                            <div className="flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-slate-400" />
+
+                              <span className="text-xs text-slate-600">
+                                {getDepartmentName(
+                                  user
+                                )}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              -
+                            </span>
+                          )}
                         </td>
 
                         {/* STATUS */}
@@ -1183,7 +1309,7 @@ const Users = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {/* ROLE */}
 
                       <div>
@@ -1201,6 +1327,33 @@ const Users = () => {
                               user.role
                             )}
                           </span>
+                        </div>
+                      </div>
+
+                      {/* DEPARTMENT */}
+
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">
+                          Department
+                        </p>
+
+                        <div className="mt-1 flex items-center gap-1.5">
+                          {user.role ===
+                          "department" ? (
+                            <>
+                              <Building2 className="w-3.5 h-3.5 text-slate-400" />
+
+                              <span className="text-xs text-slate-600">
+                                {getDepartmentName(
+                                  user
+                                )}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              -
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1237,7 +1390,7 @@ const Users = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
                       <span className="text-[10px] text-slate-400">
                         Created{" "}
                         {user.createdAt
@@ -1292,8 +1445,8 @@ const Users = () => {
 
                 <p className="text-xs text-slate-400 mt-1">
                   {editingUser
-                    ? "Update user information and access settings."
-                    : "Create a new system user."}
+                    ? "Update user information, department and access settings."
+                    : "Create a new system user and assign their department."}
                 </p>
               </div>
 
@@ -1433,6 +1586,75 @@ const Users = () => {
                   </select>
                 </div>
 
+                {/* DEPARTMENT */}
+
+                {formData.role ===
+                  "department" && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Department
+                      <span className="text-rose-500 ml-1">
+                        *
+                      </span>
+                    </label>
+
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+
+                      <select
+                        value={
+                          formData.department
+                        }
+                        onChange={(e) =>
+                          handleChange(
+                            "department",
+                            e.target.value
+                          )
+                        }
+                        disabled={
+                          submitting ||
+                          departments.length ===
+                            0
+                        }
+                        className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50"
+                      >
+                        <option value="">
+                          {departments.length ===
+                          0
+                            ? "No departments available"
+                            : "Select department"}
+                        </option>
+
+                        {departments.map(
+                          (department) => (
+                            <option
+                              key={
+                                department._id
+                              }
+                              value={
+                                department._id
+                              }
+                            >
+                              {department.name}
+                              {department.code
+                                ? ` (${department.code})`
+                                : ""}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+
+                    {departments.length ===
+                      0 && (
+                      <p className="text-[10px] text-rose-500 mt-1">
+                        Create a department before
+                        assigning this user.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* STATUS */}
 
                 <div>
@@ -1476,10 +1698,12 @@ const Users = () => {
                       </p>
 
                       <p className="text-[11px] text-indigo-600 mt-1 leading-relaxed">
-                        Administrator users have full system
-                        access. Store users manage inventory and
-                        store operations. Department users have
-                        access to department-related functionality.
+                        Administrator users have full
+                        system access. Store users manage
+                        inventory and store operations.
+                        Department users are assigned to a
+                        specific department and have access
+                        to department-related functionality.
                       </p>
                     </div>
                   </div>
@@ -1626,4 +1850,3 @@ const UsersIcon = () => (
 );
 
 export default Users;
-
