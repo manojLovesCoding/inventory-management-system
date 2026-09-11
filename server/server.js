@@ -13,6 +13,7 @@ import departmentRouter from "./routes/departmentRoutes.js";
 import inventoryRouter from "./routes/inventoryRoutes.js";
 import userRouter from "./routes/userRoutes.js";
 import stockInRouter from "./routes/stockInRoutes.js";
+import requestRouter from "./routes/itemRequestRoutes.js";
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/departments", departmentRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api/users", userRouter);
 app.use("/api/stock-in", stockInRouter);
+app.use("/api/requests", requestRouter);
 
 // Database
 await connectDB();
