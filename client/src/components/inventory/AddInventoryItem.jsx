@@ -5,7 +5,6 @@ import api from "../../api/axios.js";
 
 const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
   const [formData, setFormData] = useState({
-    purchaseItemId: "",
     name: "",
     itemCode: "",
     category: "",
@@ -16,7 +15,6 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
     description: "",
   });
 
-  const [purchaseItems, setPurchaseItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [departments, setDepartments] = useState([]);
 
@@ -24,7 +22,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
   const [loading, setLoading] = useState(false);
 
   // ==========================================
-  // FETCH PURCHASE ITEMS, CATEGORIES & DEPARTMENTS
+  // FETCH CATEGORIES & DEPARTMENTS
   // ==========================================
 
   useEffect(() => {
@@ -34,25 +32,10 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
       setLoadingOptions(true);
 
       try {
-        const [
-          purchasesResponse,
-          categoriesResponse,
-          departmentsResponse,
-        ] = await Promise.all([
-          api.get("/purchases"),
+        const [categoriesResponse, departmentsResponse] = await Promise.all([
           api.get("/categories"),
           api.get("/departments"),
         ]);
-
-        // ------------------------------------------
-        // PURCHASES
-        // ------------------------------------------
-
-        const purchaseData =
-          purchasesResponse.data?.purchases ||
-          purchasesResponse.data?.data ||
-          purchasesResponse.data ||
-          [];
 
         // ------------------------------------------
         // CATEGORIES
@@ -74,104 +57,17 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
           departmentsResponse.data ||
           [];
 
-        // ------------------------------------------
-        // EXTRACT PURCHASE ITEMS
-        // ------------------------------------------
+        setCategories(Array.isArray(categoryData) ? categoryData : []);
 
-        const extractedItems = [];
-
-        if (Array.isArray(purchaseData)) {
-          purchaseData.forEach((purchase) => {
-            const items = Array.isArray(purchase.items)
-              ? purchase.items
-              : [];
-
-            items.forEach((item) => {
-              extractedItems.push({
-                ...item,
-
-                purchaseId:
-                  purchase._id ||
-                  purchase.id ||
-                  purchase.purchaseId,
-
-                purchaseNo: purchase.purchaseNo,
-
-                purchaseDate: purchase.purchaseDate,
-
-                purchaseStatus: purchase.status,
-
-                supplier: purchase.supplier,
-              });
-            });
-          });
-        }
-
-        // ------------------------------------------
-        // REMOVE DUPLICATES
-        //
-        // Same item may exist in multiple purchases.
-        // Keep each purchase item separately because
-        // the inventory item should be linked to a
-        // specific purchase.
-        // ------------------------------------------
-
-        const uniqueItems = extractedItems.filter(
-          (item, index, self) => {
-            const currentKey = [
-              item.purchaseId,
-              item.itemId ||
-                item.itemCode ||
-                item.code ||
-                item._id ||
-                item.id ||
-                item.name,
-            ].join("-");
-
-            return (
-              index ===
-              self.findIndex((other) => {
-                const otherKey = [
-                  other.purchaseId,
-                  other.itemId ||
-                    other.itemCode ||
-                    other.code ||
-                    other._id ||
-                    other.id ||
-                    other.name,
-                ].join("-");
-
-                return otherKey === currentKey;
-              })
-            );
-          },
-        );
-
-        setPurchaseItems(uniqueItems);
-
-        setCategories(
-          Array.isArray(categoryData)
-            ? categoryData
-            : [],
-        );
-
-        setDepartments(
-          Array.isArray(departmentData)
-            ? departmentData
-            : [],
-        );
+        setDepartments(Array.isArray(departmentData) ? departmentData : []);
       } catch (error) {
-        console.error(
-          "Failed to load inventory options:",
-          error,
-        );
+        console.error("Failed to load inventory options:", error);
 
         toast.error(
           error.response?.data?.message ||
-            "Failed to load purchase items, categories and departments",
+            "Failed to load categories and departments",
         );
 
-        setPurchaseItems([]);
         setCategories([]);
         setDepartments([]);
       } finally {
@@ -183,7 +79,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
   }, [isOpen]);
 
   // ==========================================
-  // HANDLE NORMAL FORM CHANGES
+  // HANDLE FORM CHANGES
   // ==========================================
 
   const handleChange = (e) => {
@@ -196,112 +92,11 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
   };
 
   // ==========================================
-  // HANDLE PURCHASE ITEM SELECTION
-  // ==========================================
-
-  const handlePurchaseItemChange = (e) => {
-    const selectedValue = e.target.value;
-
-    if (!selectedValue) {
-      setFormData((prev) => ({
-        ...prev,
-        purchaseItemId: "",
-        name: "",
-        itemCode: "",
-        category: "",
-        unit: "Nos",
-        quantity: "",
-      }));
-
-      return;
-    }
-
-    const selectedItem = purchaseItems.find(
-      (item) => {
-        const value =
-          item.itemId ||
-          item.itemCode ||
-          item.code ||
-          item._id ||
-          item.id ||
-          item.name;
-
-        const purchaseItemKey = `${item.purchaseId}-${value}`;
-
-        return (
-          String(purchaseItemKey) ===
-          String(selectedValue)
-        );
-      },
-    );
-
-    if (!selectedItem) {
-      return;
-    }
-
-    const itemId =
-      selectedItem.itemId ||
-      selectedItem.itemCode ||
-      selectedItem.code ||
-      selectedItem._id ||
-      selectedItem.id ||
-      "";
-
-    const itemName =
-      selectedItem.name ||
-      selectedItem.itemName ||
-      selectedItem.productName ||
-      selectedItem.item?.name ||
-      selectedItem.product?.name ||
-      "";
-
-    const itemCode =
-      selectedItem.itemCode ||
-      selectedItem.code ||
-      selectedItem.item?.itemCode ||
-      selectedItem.product?.itemCode ||
-      selectedItem.itemId ||
-      "";
-
-    const unit =
-      selectedItem.unit ||
-      selectedItem.unitName ||
-      selectedItem.item?.unit ||
-      selectedItem.product?.unit ||
-      "Nos";
-
-    const category =
-      selectedItem.category ||
-      selectedItem.item?.category ||
-      selectedItem.product?.category ||
-      "";
-
-    const purchasedQuantity = Number(
-      selectedItem.quantity || 0,
-    );
-
-    setFormData((prev) => ({
-      ...prev,
-      purchaseItemId: `${selectedItem.purchaseId}-${itemId}`,
-      name: itemName,
-      itemCode,
-      category:
-        prev.category || category,
-      unit,
-      quantity:
-        purchasedQuantity > 0
-          ? String(purchasedQuantity)
-          : "",
-    }));
-  };
-
-  // ==========================================
   // RESET FORM
   // ==========================================
 
   const resetForm = () => {
     setFormData({
-      purchaseItemId: "",
       name: "",
       itemCode: "",
       category: "",
@@ -324,13 +119,8 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
     // BASIC VALIDATION
     // ------------------------------------------
 
-    if (!formData.purchaseItemId) {
-      toast.error("Please select an item from purchase");
-      return;
-    }
-
     if (!formData.name.trim()) {
-      toast.error("Please select a valid purchase item");
+      toast.error("Please enter item name");
       return;
     }
 
@@ -344,129 +134,72 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
       return;
     }
 
+    if (!formData.unit.trim()) {
+      toast.error("Please enter unit");
+      return;
+    }
+
     if (
       formData.quantity === "" ||
+      !Number.isFinite(Number(formData.quantity)) ||
       Number(formData.quantity) < 0
     ) {
       toast.error("Please enter a valid quantity");
       return;
     }
 
-    // ------------------------------------------
-    // FIND SELECTED PURCHASE ITEM
-    // ------------------------------------------
-
-    const selectedItem = purchaseItems.find(
-      (item) => {
-        const value =
-          item.itemId ||
-          item.itemCode ||
-          item.code ||
-          item._id ||
-          item.id ||
-          item.name;
-
-        const purchaseItemKey = `${item.purchaseId}-${value}`;
-
-        return (
-          String(purchaseItemKey) ===
-          String(formData.purchaseItemId)
-        );
-      },
-    );
-
-    if (!selectedItem) {
-      toast.error("Selected purchase item was not found");
+    if (
+      formData.minimumStock !== "" &&
+      (!Number.isFinite(Number(formData.minimumStock)) ||
+        Number(formData.minimumStock) < 0)
+    ) {
+      toast.error("Please enter a valid minimum stock level");
       return;
     }
 
     const quantity = Number(formData.quantity);
+
     const minimumStock =
-      Number(formData.minimumStock) || 0;
-
-    const purchasedQuantity = Number(
-      selectedItem.quantity || 0,
-    );
-
-    // ------------------------------------------
-    // QUANTITY VALIDATION
-    // ------------------------------------------
-
-    if (
-      purchasedQuantity > 0 &&
-      quantity > purchasedQuantity
-    ) {
-      toast.error(
-        `Inventory quantity cannot exceed purchased quantity (${purchasedQuantity})`,
-      );
-      return;
-    }
+      formData.minimumStock === "" ? 0 : Number(formData.minimumStock);
 
     setLoading(true);
 
     try {
       // ------------------------------------------
-      // GET ACTUAL PURCHASE ID
-      // ------------------------------------------
-
-      const purchaseId =
-        selectedItem.purchaseId;
-
-      const itemId =
-        selectedItem.itemId ||
-        selectedItem.itemCode ||
-        selectedItem.code ||
-        selectedItem._id ||
-        selectedItem.id ||
-        formData.itemCode;
-
-      // ------------------------------------------
       // API PAYLOAD
       // ------------------------------------------
 
       const payload = {
-        purchaseId,
-
-        itemId: String(itemId),
-
         name: formData.name.trim(),
 
-        itemCode:
-          formData.itemCode.trim() ||
-          String(itemId),
+        // Optional.
+        // Backend will generate an item code if this is empty.
+        itemCode: formData.itemCode.trim(),
 
         category: formData.category,
 
         department: formData.department,
 
-        unit: formData.unit,
+        unit: formData.unit.trim(),
 
         quantity,
 
         minimumStock,
 
-        description:
-          formData.description.trim(),
+        description: formData.description.trim(),
       };
 
       // ------------------------------------------
       // CREATE INVENTORY ITEM
       // ------------------------------------------
 
-      const response = await api.post(
-        "/inventory",
-        payload,
-      );
+      const response = await api.post("/inventory", payload);
 
       const createdItem =
-        response.data?.inventory ||
-        response.data?.item ||
-        response.data?.data;
+        response.data?.inventory || response.data?.item || response.data?.data;
 
       if (!createdItem) {
-        throw new Error(
-          "Inventory item was created but no item was returned",
-        );
+        throw new Error("Inventory item was created but no item was returned");
       }
 
       // ------------------------------------------
@@ -477,22 +210,21 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
         onAdd(createdItem);
       }
 
+      // ------------------------------------------
+      // SUCCESS
+      // ------------------------------------------
+
       toast.success(
-        response.data?.message ||
-          "Inventory item added successfully",
+        response.data?.message || "Inventory item added successfully",
       );
 
       resetForm();
       onClose();
     } catch (error) {
-      console.error(
-        "Failed to add inventory item:",
-        error,
-      );
+      console.error("Failed to add inventory item:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to add inventory item",
+        error.response?.data?.message || "Failed to add inventory item",
       );
     } finally {
       setLoading(false);
@@ -539,7 +271,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
               </h2>
 
               <p className="text-xs text-slate-500 mt-0.5">
-                Add a purchased item to the college inventory
+                Add a new item to the college inventory
               </p>
             </div>
           </div>
@@ -558,7 +290,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
         {loadingOptions && (
           <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100">
             <p className="text-xs text-indigo-600">
-              Loading purchased items, categories and departments...
+              Loading categories and departments...
             </p>
           </div>
         )}
@@ -577,7 +309,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 </h3>
 
                 <p className="text-xs text-slate-400 mt-1">
-                  Select an item from an existing purchase.
+                  Enter the inventory item information manually.
                 </p>
               </div>
 
@@ -586,92 +318,22 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Item Name
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
-                  <select
-                    name="purchaseItemId"
-                    value={formData.purchaseItemId}
-                    onChange={handlePurchaseItemChange}
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
                     required
-                    disabled={
-                      loading ||
-                      loadingOptions
-                    }
+                    disabled={loading}
+                    placeholder="Enter item name"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
-                  >
-                    <option value="">
-                      {loadingOptions
-                        ? "Loading purchased items..."
-                        : "Select item from purchase"}
-                    </option>
-
-                    {purchaseItems.map(
-                      (item, index) => {
-                        const itemId =
-                          item.itemId ||
-                          item.itemCode ||
-                          item.code ||
-                          item._id ||
-                          item.id ||
-                          item.name ||
-                          `item-${index}`;
-
-                        const value = `${item.purchaseId}-${itemId}`;
-
-                        const label =
-                          item.name ||
-                          item.itemName ||
-                          item.productName ||
-                          item.item?.name ||
-                          item.product?.name ||
-                          "Unnamed Item";
-
-                        const code =
-                          item.itemCode ||
-                          item.code ||
-                          item.itemId ||
-                          item.item?.itemCode ||
-                          item.product?.itemCode;
-
-                        const quantity =
-                          Number(
-                            item.quantity || 0,
-                          );
-
-                        return (
-                          <option
-                            key={value}
-                            value={value}
-                          >
-                            {label}
-                            {code
-                              ? ` (${code})`
-                              : ""}
-                            {item.purchaseNo
-                              ? ` - ${item.purchaseNo}`
-                              : ""}
-                            {quantity
-                              ? ` - Qty: ${quantity}`
-                              : ""}
-                          </option>
-                        );
-                      },
-                    )}
-                  </select>
-
-                  {!loadingOptions &&
-                    purchaseItems.length ===
-                      0 && (
-                      <p className="mt-1 text-[11px] text-rose-500">
-                        No purchased items available.
-                      </p>
-                    )}
+                  />
 
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Item name cannot be entered manually.
+                    Enter the item name manually.
                   </p>
                 </div>
 
@@ -685,14 +347,15 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     type="text"
                     name="itemCode"
                     value={formData.itemCode}
-                    readOnly
+                    onChange={handleChange}
                     disabled={loading}
-                    placeholder="Automatically populated"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 text-slate-600 outline-none"
+                    placeholder="Optional"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
 
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Automatically populated from purchase.
+                    Optional. A code will be generated automatically if left
+                    empty.
                   </p>
                 </div>
 
@@ -700,22 +363,22 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Unit
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <input
                     type="text"
                     name="unit"
                     value={formData.unit}
-                    readOnly
+                    onChange={handleChange}
+                    required
                     disabled={loading}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-slate-50 text-slate-600 outline-none"
+                    placeholder="e.g. Nos, Kg, Ltr"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
 
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Automatically populated from purchase.
+                    Enter the unit manually.
                   </p>
                 </div>
               </div>
@@ -741,9 +404,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Category
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <select
@@ -751,10 +412,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     value={formData.category}
                     onChange={handleChange}
                     required
-                    disabled={
-                      loading ||
-                      loadingOptions
-                    }
+                    disabled={loading || loadingOptions}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   >
                     <option value="">
@@ -763,48 +421,39 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                         : "Select category"}
                     </option>
 
-                    {categories.map(
-                      (category) => {
-                        const value =
-                          category._id ||
-                          category.id ||
-                          category.code ||
-                          category.name;
+                    {categories.map((category) => {
+                      const value =
+                        category._id ||
+                        category.id ||
+                        category.code ||
+                        category.name;
 
-                        const label =
-                          category.name ||
-                          category.title ||
-                          category.categoryName ||
-                          category.code;
+                      const label =
+                        category.name ||
+                        category.title ||
+                        category.categoryName ||
+                        category.code;
 
-                        return (
-                          <option
-                            key={String(value)}
-                            value={String(value)}
-                          >
-                            {label}
-                          </option>
-                        );
-                      },
-                    )}
+                      return (
+                        <option key={String(value)} value={String(value)}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
 
-                  {!loadingOptions &&
-                    categories.length ===
-                      0 && (
-                      <p className="mt-1 text-[11px] text-rose-500">
-                        No categories available.
-                      </p>
-                    )}
+                  {!loadingOptions && categories.length === 0 && (
+                    <p className="mt-1 text-[11px] text-rose-500">
+                      No categories available.
+                    </p>
+                  )}
                 </div>
 
                 {/* Department */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Department
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <select
@@ -812,10 +461,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     value={formData.department}
                     onChange={handleChange}
                     required
-                    disabled={
-                      loading ||
-                      loadingOptions
-                    }
+                    disabled={loading || loadingOptions}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   >
                     <option value="">
@@ -824,39 +470,32 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                         : "Select department"}
                     </option>
 
-                    {departments.map(
-                      (department) => {
-                        const value =
-                          department._id ||
-                          department.id ||
-                          department.code ||
-                          department.name;
+                    {departments.map((department) => {
+                      const value =
+                        department._id ||
+                        department.id ||
+                        department.code ||
+                        department.name;
 
-                        const label =
-                          department.name ||
-                          department.departmentName ||
-                          department.title ||
-                          department.code;
+                      const label =
+                        department.name ||
+                        department.departmentName ||
+                        department.title ||
+                        department.code;
 
-                        return (
-                          <option
-                            key={String(value)}
-                            value={String(value)}
-                          >
-                            {label}
-                          </option>
-                        );
-                      },
-                    )}
+                      return (
+                        <option key={String(value)} value={String(value)}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
 
-                  {!loadingOptions &&
-                    departments.length ===
-                      0 && (
-                      <p className="mt-1 text-[11px] text-rose-500">
-                        No departments available.
-                      </p>
-                    )}
+                  {!loadingOptions && departments.length === 0 && (
+                    <p className="mt-1 text-[11px] text-rose-500">
+                      No departments available.
+                    </p>
+                  )}
                 </div>
               </div>
             </section>
@@ -872,7 +511,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 </h3>
 
                 <p className="text-xs text-slate-400 mt-1">
-                  Define the quantity to add to inventory and minimum stock level.
+                  Define the initial quantity and minimum stock level.
                 </p>
               </div>
 
@@ -881,9 +520,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Initial Quantity
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <input
@@ -895,18 +532,13 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
                     step="0.01"
                     required
                     placeholder="0"
-                    disabled={
-                      loading ||
-                      !formData.purchaseItemId
-                    }
+                    disabled={loading}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
                   />
 
-                  {formData.purchaseItemId && (
-                    <p className="mt-1 text-[11px] text-slate-400">
-                      Maximum quantity is based on the selected purchase.
-                    </p>
-                  )}
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Enter the initial quantity for this inventory item.
+                  </p>
                 </div>
 
                 {/* Minimum Stock */}
@@ -971,11 +603,7 @@ const AddInventoryItem = ({ isOpen, onClose, onAdd }) => {
 
             <button
               type="submit"
-              disabled={
-                loading ||
-                loadingOptions ||
-                purchaseItems.length === 0
-              }
+              disabled={loading || loadingOptions}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
               {loading ? (

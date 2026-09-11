@@ -61,18 +61,6 @@ const inventorySchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-
-    purchase: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Purchase",
-      required: true,
-    },
-
-    purchaseItemCode: {
-      type: String,
-      required: true,
-      trim: true,
-    },
   },
   {
     timestamps: true,

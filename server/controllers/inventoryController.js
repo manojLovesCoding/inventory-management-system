@@ -130,7 +130,6 @@ export const getInventory = async (req, res) => {
 
     const inventory = await Inventory.find(query)
       .populate("department", "name departmentName code")
-      .populate("purchase", "purchaseNo purchaseDate status")
       .sort({
         createdAt: -1,
       });
@@ -145,7 +144,8 @@ export const getInventory = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to fetch inventory",
+      message: error.message,
+      error: error.name,
     });
   }
 };
@@ -156,9 +156,10 @@ export const getInventory = async (req, res) => {
 
 export const getInventoryById = async (req, res) => {
   try {
-    const inventory = await Inventory.findById(req.params.id)
-      .populate("department", "name departmentName code")
-      .populate("purchase", "purchaseNo purchaseDate status supplier");
+    const inventory = await Inventory.findById(req.params.id).populate(
+      "department",
+      "name departmentName code",
+    );
 
     if (!inventory) {
       return res.status(404).json({
@@ -187,24 +188,32 @@ export const getInventoryById = async (req, res) => {
 
 export const createInventory = async (req, res) => {
   try {
-    const { purchaseId, itemCode, department, minimumStock, description } =
-      req.body;
+    const {
+      name,
+      itemCode,
+      category,
+      department,
+      unit,
+      quantity,
+      minimumStock,
+      description,
+    } = req.body;
 
     // -------------------------
     // VALIDATION
     // -------------------------
 
-    if (!purchaseId) {
+    if (!name?.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Purchase is required",
+        message: "Item name is required",
       });
     }
 
-    if (!itemCode?.trim()) {
+    if (!category?.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Purchase item code is required",
+        message: "Category is required",
       });
     }
 
@@ -215,40 +224,28 @@ export const createInventory = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // FIND PURCHASE
-    // -------------------------
-
-    const purchase = await Purchase.findById(purchaseId);
-
-    if (!purchase) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase not found",
-      });
-    }
-
-    // Only received purchases can enter inventory
-    if (!["Received", "Partially Received"].includes(purchase.status)) {
+    if (!unit?.trim()) {
       return res.status(400).json({
         success: false,
-        message:
-          "Only received or partially received purchases can be added to inventory",
+        message: "Unit is required",
       });
     }
 
-    // -------------------------
-    // FIND PURCHASE ITEM
-    // -------------------------
+    const parsedQuantity = Number(quantity);
 
-    const purchaseItem = purchase.items.find(
-      (item) => item.itemId === itemCode.trim(),
-    );
-
-    if (!purchaseItem) {
-      return res.status(404).json({
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
+      return res.status(400).json({
         success: false,
-        message: "Item not found in the selected purchase",
+        message: "Quantity must be a valid non-negative number",
+      });
+    }
+
+    const parsedMinimumStock = Number(minimumStock) || 0;
+
+    if (!Number.isFinite(parsedMinimumStock) || parsedMinimumStock < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Minimum stock must be a valid non-negative number",
       });
     }
 
@@ -266,81 +263,72 @@ export const createInventory = async (req, res) => {
     }
 
     // -------------------------
-    // CHECK DUPLICATE
+    // ITEM CODE
+    // -------------------------
+
+    const finalItemCode = itemCode?.trim() || `INV-${Date.now()}`;
+
+    // -------------------------
+    // CHECK DUPLICATE ITEM CODE
     // -------------------------
 
     const existingInventory = await Inventory.findOne({
-      purchase: purchaseId,
-      purchaseItemCode: purchaseItem.itemId,
+      itemCode: finalItemCode,
     });
 
     if (existingInventory) {
       return res.status(409).json({
         success: false,
-        message: "This purchased item has already been added to inventory",
+        message: "An inventory item with this item code already exists",
       });
     }
 
     // -------------------------
-    // MINIMUM STOCK
+    // AVAILABLE QUANTITY
     // -------------------------
 
-    const finalMinimumStock = Number(minimumStock) || 0;
-
-    if (!Number.isFinite(finalMinimumStock) || finalMinimumStock < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Minimum stock must be a valid non-negative number",
-      });
-    }
+    const available = parsedQuantity;
 
     // -------------------------
-    // INITIAL QUANTITY
+    // STATUS
     // -------------------------
 
-    const quantity = Number(purchaseItem.quantity);
-
-    const available = quantity;
-
-    const status = calculateStatus(available, finalMinimumStock);
+    const status = calculateStatus(available, parsedMinimumStock);
 
     // -------------------------
     // CREATE INVENTORY
     // -------------------------
 
     const inventory = await Inventory.create({
-      itemCode: purchaseItem.itemId,
+      itemCode: finalItemCode,
 
-      name: purchaseItem.name,
+      name: name.trim(),
 
-      category: purchaseItem.category,
+      category: category.trim(),
 
       department,
 
-      unit: purchaseItem.unit,
+      unit: unit.trim(),
 
-      quantity,
+      quantity: parsedQuantity,
 
       available,
 
-      minimumStock: finalMinimumStock,
+      minimumStock: parsedMinimumStock,
 
       status,
 
       description: description?.trim() || "",
-
-      purchase: purchase._id,
-
-      purchaseItemCode: purchaseItem.itemId,
     });
 
     // -------------------------
     // POPULATE
     // -------------------------
 
-    const populatedInventory = await Inventory.findById(inventory._id)
-      .populate("department", "name departmentName code")
-      .populate("purchase", "purchaseNo purchaseDate status");
+    const populatedInventory = await Inventory.findById(inventory._id).populate(
+      "department",
+      "name departmentName code",
+    );
 
     res.status(201).json({
       success: true,
@@ -353,7 +341,7 @@ export const createInventory = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "This purchased item has already been added to inventory",
+        message: "An inventory item with this item code already exists",
       });
     }
 
@@ -476,9 +464,10 @@ export const updateInventory = async (req, res) => {
 
     await inventory.save();
 
-    const updatedInventory = await Inventory.findById(inventory._id)
-      .populate("department", "name departmentName code")
-      .populate("purchase", "purchaseNo purchaseDate status");
+    const updatedInventory = await Inventory.findById(inventory._id).populate(
+      "department",
+      "name departmentName code",
+    );
 
     res.status(200).json({
       success: true,
