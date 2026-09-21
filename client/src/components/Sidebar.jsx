@@ -73,8 +73,21 @@ const Sidebar = () => {
     },
 
     {
-      title: "Inventory",
-      key: "inventory",
+      title: "College",
+      key: "college",
+      items: [
+        {
+          name: "Item Requests",
+          href: "/requests",
+          icon: ClipboardList,
+        },
+      ],
+    },
+
+    {
+      title: "Administration",
+      key: "administration",
+      roles: ["admin"], // Restricted to admin role only
       items: [
         {
           name: "Items",
@@ -86,13 +99,6 @@ const Sidebar = () => {
           href: "/categories",
           icon: Tags,
         },
-      ],
-    },
-
-    {
-      title: "Stock Management",
-      key: "stock",
-      items: [
         {
           name: "Stock In",
           href: "/stock/in",
@@ -113,13 +119,6 @@ const Sidebar = () => {
           href: "/stock/adjustments",
           icon: SlidersHorizontal,
         },
-      ],
-    },
-
-    {
-      title: "Procurement",
-      key: "procurement",
-      items: [
         {
           name: "Purchases",
           href: "/purchases",
@@ -130,42 +129,16 @@ const Sidebar = () => {
           href: "/suppliers",
           icon: Truck,
         },
-      ],
-    },
-
-    {
-      title: "College",
-      key: "college",
-      items: [
         {
           name: "Departments",
           href: "/departments",
           icon: Building2,
         },
         {
-          name: "Item Requests",
-          href: "/requests",
-          icon: ClipboardList,
-        },
-      ],
-    },
-
-    {
-      title: "Analytics",
-      items: [
-        {
           name: "Reports",
           href: "/reports",
           icon: FileBarChart,
         },
-      ],
-    },
-
-    {
-      title: "Administration",
-      key: "administration",
-      roles: ["admin"], // Restricted to admin role only
-      items: [
         {
           name: "Users",
           href: "/users",
@@ -391,4 +364,5 @@ const Sidebar = () => {
   );
 };
 
+export const Session = Sidebar;
 export default Sidebar;

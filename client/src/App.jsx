@@ -137,34 +137,34 @@ const App = () => {
 
         <Route element={<ProtectedRoutes />}>
           <Route path="/dashboard" element={<Dashboard />} />
-
-          {/* Inventory */}
-          <Route path="/inventory" element={<Inventory />} />
-          <Route path="/categories" element={<Categories />} />
-
-          {/* Stock */}
-          <Route path="/stock/in" element={<StockIn />} />
-          <Route path="/stock/out" element={<StockOut />} />
-          <Route path="/stock/returns" element={<Returns />} />
-          <Route path="/stock/adjustments" element={<Adjustments />} />
-
-          {/* Procurement */}
-          <Route path="/purchases" element={<Purchases />} />
-          <Route path="/suppliers" element={<Suppliers />} />
-
-          {/* College */}
-          <Route path="/departments" element={<Departments />} />
-
           <Route path="/requests" element={<Requests />} />
 
-          {/* Analytics */}
-          <Route path="/reports" element={<Reports />} />
-
-          {/* Administration */}
+          {/* Admin Only Routes */}
           <Route element={<AdminRoute />}>
+            {/* Inventory */}
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/categories" element={<Categories />} />
+
+            {/* Stock */}
+            <Route path="/stock/in" element={<StockIn />} />
+            <Route path="/stock/out" element={<StockOut />} />
+            <Route path="/stock/returns" element={<Returns />} />
+            <Route path="/stock/adjustments" element={<Adjustments />} />
+
+            {/* Procurement */}
+            <Route path="/purchases" element={<Purchases />} />
+            <Route path="/suppliers" element={<Suppliers />} />
+
+            {/* College */}
+            <Route path="/departments" element={<Departments />} />
+
+            {/* Analytics */}
+            <Route path="/reports" element={<Reports />} />
+
+            {/* Administration */}
             <Route path="/users" element={<Users />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
-          <Route path="/settings" element={<Settings />} />
         </Route>
 
         {/* =========================
