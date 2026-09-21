@@ -1,5 +1,5 @@
 import { Toaster } from "react-hot-toast";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import LoginLanding from "./pages/LoginLanding";
 import LoginForm from "./components/LoginForm";
@@ -40,6 +40,18 @@ const ProtectedRoutes = () => {
   }
 
   return <Layout />;
+};
+
+const AdminRoute = () => {
+  // Retrieve the logged-in user from localStorage, Context, or Redux
+  const user = JSON.parse(localStorage.getItem("user"));
+
+  // Check if user is authenticated and has the 'admin' role
+  if (!user || user.role !== "admin") {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <Outlet />;
 };
 
 const PublicRoute = ({ children }) => {
@@ -134,20 +146,14 @@ const App = () => {
           <Route path="/stock/in" element={<StockIn />} />
           <Route path="/stock/out" element={<StockOut />} />
           <Route path="/stock/returns" element={<Returns />} />
-          <Route
-            path="/stock/adjustments"
-            element={<Adjustments />}
-          />
+          <Route path="/stock/adjustments" element={<Adjustments />} />
 
           {/* Procurement */}
           <Route path="/purchases" element={<Purchases />} />
           <Route path="/suppliers" element={<Suppliers />} />
 
           {/* College */}
-          <Route
-            path="/departments"
-            element={<Departments />}
-          />
+          <Route path="/departments" element={<Departments />} />
 
           <Route path="/requests" element={<Requests />} />
 
@@ -155,7 +161,9 @@ const App = () => {
           <Route path="/reports" element={<Reports />} />
 
           {/* Administration */}
-          <Route path="/users" element={<Users />} />
+          <Route element={<AdminRoute />}>
+            <Route path="/users" element={<Users />} />
+          </Route>
           <Route path="/settings" element={<Settings />} />
         </Route>
 
@@ -163,15 +171,9 @@ const App = () => {
             DEFAULT ROUTES
         ========================== */}
 
-        <Route
-          path="/"
-          element={<Navigate to="/dashboard" replace />}
-        />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-        <Route
-          path="*"
-          element={<Navigate to="/login" replace />}
-        />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </>
   );

@@ -164,6 +164,7 @@ const Sidebar = () => {
     {
       title: "Administration",
       key: "administration",
+      roles: ["admin"], // Restricted to admin role only
       items: [
         {
           name: "Users",
@@ -245,92 +246,87 @@ const Sidebar = () => {
           NAVIGATION
       ====================================================== */}
       <div className="flex-1 px-3 pb-4 overflow-y-auto scrollbar-thin">
-        {menuGroups.map((group) => {
-          const isGroupOpen = group.key
-            ? openMenus[group.key]
-            : true;
+        {menuGroups
+          .filter((group) => {
+            // If the group specifies allowed roles, check if the current user matches
+            if (group.roles) {
+              return group.roles.includes(user?.role?.toLowerCase());
+            }
+            return true;
+          })
+          .map((group) => {
+            const isGroupOpen = group.key ? openMenus[group.key] : true;
 
-          return (
-            <div
-              key={group.title}
-              className="mb-5"
-            >
-              {/* GROUP TITLE */}
-              <button
-                type="button"
-                disabled={!group.key}
-                onClick={() =>
-                  group.key && toggleMenu(group.key)
-                }
-                className={`w-full flex items-center justify-between px-2 mb-2 ${
-                  group.key
-                    ? "cursor-pointer"
-                    : "cursor-default"
-                }`}
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                  {group.title}
-                </span>
+            return (
+              <div key={group.title} className="mb-5">
+                {/* GROUP TITLE */}
+                <button
+                  type="button"
+                  disabled={!group.key}
+                  onClick={() => group.key && toggleMenu(group.key)}
+                  className={`w-full flex items-center justify-between px-2 mb-2 ${
+                    group.key ? "cursor-pointer" : "cursor-default"
+                  }`}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                    {group.title}
+                  </span>
 
-                {group.key && (
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${
-                      isGroupOpen
-                        ? ""
-                        : "-rotate-90"
-                    }`}
-                  />
-                )}
-              </button>
+                  {group.key && (
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${
+                        isGroupOpen ? "" : "-rotate-90"
+                      }`}
+                    />
+                  )}
+                </button>
 
-              {/* MENU ITEMS */}
-              {isGroupOpen && (
-                <div className="space-y-1">
-                  {group.items.map((item) => {
-                    const active = isActive(item.href);
-                    const Icon = item.icon;
+                {/* MENU ITEMS */}
+                {isGroupOpen && (
+                  <div className="space-y-1">
+                    {group.items.map((item) => {
+                      const active = isActive(item.href);
+                      const Icon = item.icon;
 
-                    return (
-                      <Link
-                        key={item.href}
-                        to={item.href}
-                        className={`relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group ${
-                          active
-                            ? "bg-indigo-500/10 text-indigo-300"
-                            : "text-slate-400 hover:bg-white/5 hover:text-white"
-                        }`}
-                      >
-                        {/* Active Indicator */}
-                        {active && (
-                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-indigo-500" />
-                        )}
-
-                        {/* Icon */}
-                        <Icon
-                          className={`w-[17px] h-[17px] shrink-0 transition-colors ${
+                      return (
+                        <Link
+                          key={item.href}
+                          to={item.href}
+                          className={`relative flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group ${
                             active
-                              ? "text-indigo-300"
-                              : "text-slate-500 group-hover:text-slate-300"
+                              ? "bg-indigo-500/10 text-indigo-300"
+                              : "text-slate-400 hover:bg-white/5 hover:text-white"
                           }`}
-                        />
+                        >
+                          {/* Active Indicator */}
+                          {active && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-indigo-500" />
+                          )}
 
-                        {/* Name */}
-                        <span className="flex-1 truncate">
-                          {item.name}
-                        </span>
+                          {/* Icon */}
+                          <Icon
+                            className={`w-[17px] h-[17px] shrink-0 transition-colors ${
+                              active
+                                ? "text-indigo-300"
+                                : "text-slate-500 group-hover:text-slate-300"
+                            }`}
+                          />
 
-                        {/* Active Arrow */}
-                        {active && (
-                          <ChevronRight className="w-3.5 h-3.5 text-indigo-400/60 shrink-0" />
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                          {/* Name */}
+                          <span className="flex-1 truncate">{item.name}</span>
+
+                          {/* Active Arrow */}
+                          {active && (
+                            <ChevronRight className="w-3.5 h-3.5 text-indigo-400/60 shrink-0" />
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
       </div>
 
       {/* =====================================================
@@ -386,9 +382,7 @@ const Sidebar = () => {
       ====================================================== */}
       <aside
         className={`lg:hidden fixed inset-y-0 left-0 w-72 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white z-50 flex flex-col transform transition-transform duration-300 ${
-          mobileOpen
-            ? "translate-x-0"
-            : "-translate-x-full"
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {sidebarContent}
