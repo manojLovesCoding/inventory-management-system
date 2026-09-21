@@ -27,7 +27,8 @@ export const register = async (req, res) => {
       });
     }
 
-    const allowedRoles = ["admin", "store", "department"];
+    // Updated allowedRoles to exclude 'store'
+    const allowedRoles = ["admin", "department"];
 
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({
@@ -131,9 +132,7 @@ export const login = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Login successful",
-
       token,
-
       user: {
         id: user._id,
         name: user.name,
