@@ -15,7 +15,7 @@ const departmentRouter = express.Router();
 
 // All department routes require authentication + admin role
 departmentRouter.use(protect);
-departmentRouter.use(authorize("admin"));
+departmentRouter.use(authorize("admin","department"));
 
 departmentRouter.get("/", getDepartments);
 

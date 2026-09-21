@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api/axios.js";
+import { useAuth } from "../context/AuthContext.jsx";
 
 const statusOptions = ["All", "Pending", "Approved", "Rejected", "Issued"];
 
@@ -125,6 +126,7 @@ const normalizeRequest = (request, index = 0) => {
 };
 
 const Requests = () => {
+  const { user } = useAuth();
   const [requests, setRequests] = useState(initialRequests);
 
   // --------------------------------------------------
@@ -973,9 +975,11 @@ const Requests = () => {
                         Required
                       </th>
 
-                      <th className="text-right px-5 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Action
-                      </th>
+                      {user?.role === "admin" && (
+                        <th className="text-right px-5 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Action
+                        </th>
+                      )}
                     </tr>
                   </thead>
 
@@ -1061,16 +1065,18 @@ const Requests = () => {
                           </span>
                         </td>
 
-                        <td className="px-5 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedRequest(request)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            View
-                          </button>
-                        </td>
+                        {user?.role === "admin" && (
+                          <td className="px-5 py-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedRequest(request)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              View
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1102,13 +1108,15 @@ const Requests = () => {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRequest(request)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 shrink-0"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      {user?.role === "admin" && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRequest(request)}
+                          className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 shrink-0"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
@@ -1533,7 +1541,7 @@ const Requests = () => {
 
       {/* REQUEST DETAILS MODAL */}
 
-      {selectedRequest && (
+      {selectedRequest && user?.role === "admin" && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"

@@ -16,7 +16,7 @@ const inventoryRouter = express.Router();
 
 // All inventory routes require admin
 inventoryRouter.use(protect);
-inventoryRouter.use(authorize("admin"));
+inventoryRouter.use(authorize("admin","department"));
 
 // Purchased items available for inventory
 inventoryRouter.get("/purchased-items", getPurchasedItems);

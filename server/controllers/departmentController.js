@@ -12,7 +12,7 @@ const generateDepartmentId = async () => {
 
   const lastNumber = parseInt(
     lastDepartment.departmentId.replace("DEPT-", ""),
-    10
+    10,
   );
 
   return `DEPT-${String(lastNumber + 1).padStart(3, "0")}`;
@@ -21,14 +21,33 @@ const generateDepartmentId = async () => {
 // GET /api/departments
 export const getDepartments = async (req, res) => {
   try {
-    const departments = await Department.find().sort({
+    let query = {};
+
+    // If the user is a department user (not an admin), filter by their assigned department
+    if (req.user.role !== "admin") {
+      const departmentId = req.user.department || req.user.departmentId;
+
+      if (!departmentId) {
+        return res.status(404).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      // Match either MongoDB _id or custom departmentId string
+      query = {
+        $or: [{ _id: departmentId }, { departmentId: departmentId }],
+      };
+    }
+
+    const departments = await Department.find(query).sort({
       createdAt: 1,
     });
 
     res.status(200).json({
       success: true,
       count: departments.length,
-      data: departments,
+      data: departments, // Returns all for admin, or an array with just their department for department users
     });
   } catch (error) {
     console.error("Get departments error:", error);
@@ -71,16 +90,8 @@ export const getDepartmentById = async (req, res) => {
 // POST /api/departments
 export const createDepartment = async (req, res) => {
   try {
-    const {
-      name,
-      code,
-      hod,
-      email,
-      phone,
-      location,
-      students,
-      status,
-    } = req.body;
+    const { name, code, hod, email, phone, location, students, status } =
+      req.body;
 
     if (
       !name?.trim() ||
@@ -92,8 +103,7 @@ export const createDepartment = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Name, code, HOD, email, phone and location are required",
+        message: "Name, code, HOD, email, phone and location are required",
       });
     }
 
@@ -165,16 +175,8 @@ export const updateDepartment = async (req, res) => {
       });
     }
 
-    const {
-      name,
-      code,
-      hod,
-      email,
-      phone,
-      location,
-      students,
-      status,
-    } = req.body;
+    const { name, code, hod, email, phone, location, students, status } =
+      req.body;
 
     if (code) {
       const normalizedCode = code.trim().toUpperCase();

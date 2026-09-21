@@ -17,7 +17,7 @@ const requestRouter = express.Router();
 
 // All inventory routes require admin
 requestRouter.use(protect);
-requestRouter.use(authorize("admin"));
+requestRouter.use(authorize("admin","department"));
 
 /*
  * GET /api/item-requests
