@@ -182,6 +182,19 @@ const Requests = () => {
     remarks: "",
   });
 
+  const openCreateModal = () => {
+  setNewRequest((prev) => ({
+    ...prev,
+    requestedBy: user?.name || "",
+    department:
+      user?.department?._id ||
+      user?.department ||
+      prev.department,
+  }));
+
+  setShowCreateModal(true);
+};
+
   // --------------------------------------------------
   // GET DEPARTMENTS
   // --------------------------------------------------
@@ -718,10 +731,10 @@ const Requests = () => {
           </div>
 
           <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
-          >
+  type="button"
+  onClick={openCreateModal}
+  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+>
             <Plus className="w-4 h-4" />
             New Request
           </button>

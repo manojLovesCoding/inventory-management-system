@@ -36,15 +36,20 @@ export const getItemRequests = async (req, res) => {
 
     const filter = {};
 
-    if (status && status !== "All") {
-      filter.status = status;
-    }
-
-    if (priority && priority !== "All") {
-      filter.priority = priority;
-    }
-
-    if (department && department !== "All") {
+    // ----------------------------------------------------
+    // SCOPE BASED ON USER ROLE
+    // ----------------------------------------------------
+    if (req.user?.role !== "admin") {
+      // If requests belong to the department:
+      const userDeptId = req.user?.department?._id || req.user?.department;
+      if (userDeptId) {
+        filter.department = userDeptId;
+      } else {
+        // Alternatively, if scoping by individual user identity:
+        // filter.requestedBy = req.user.name; // or user: req.user._id
+      }
+    } else if (department && department !== "All") {
+      // Admin filter by department
       if (mongoose.Types.ObjectId.isValid(department)) {
         filter.department = department;
       } else {
@@ -61,6 +66,14 @@ export const getItemRequests = async (req, res) => {
 
         filter.department = departmentDoc._id;
       }
+    }
+
+    if (status && status !== "All") {
+      filter.status = status;
+    }
+
+    if (priority && priority !== "All") {
+      filter.priority = priority;
     }
 
     let requests = await ItemRequest.find(filter)
@@ -80,21 +93,11 @@ export const getItemRequests = async (req, res) => {
 
       requests = requests.filter((request) => {
         return (
-          request.requestNumber
-            ?.toLowerCase()
-            .includes(query) ||
-          request.item?.name
-            ?.toLowerCase()
-            .includes(query) ||
-          request.item?.itemName
-            ?.toLowerCase()
-            .includes(query) ||
-          request.department?.name
-            ?.toLowerCase()
-            .includes(query) ||
-          request.requestedBy
-            ?.toLowerCase()
-            .includes(query)
+          request.requestNumber?.toLowerCase().includes(query) ||
+          request.item?.name?.toLowerCase().includes(query) ||
+          request.item?.itemName?.toLowerCase().includes(query) ||
+          request.department?.name?.toLowerCase().includes(query) ||
+          request.requestedBy?.toLowerCase().includes(query)
         );
       });
     }
@@ -102,48 +105,32 @@ export const getItemRequests = async (req, res) => {
     const data = requests.map((request) => ({
       id: request.requestNumber,
       _id: request._id,
-
       itemId: request.item?._id,
       itemName:
         request.item?.name ||
         request.item?.itemName ||
         request.item?.productName ||
         "Unknown Item",
-
       itemCode: request.item?.itemCode,
-
       category:
         typeof request.item?.category === "object"
           ? request.item.category?.name ||
             request.item.category?.categoryName ||
             ""
           : request.item?.category || "",
-
       departmentId: request.department?._id,
       department: request.department?.name || "",
-
       requestedBy: request.requestedBy,
-
       quantity: request.quantity,
-
       unit: request.item?.unit || "Nos",
-
       priority: request.priority,
-
       status: request.status,
-
       requestDate: request.requestDate,
-
       requiredDate: request.requiredDate,
-
       purpose: request.purpose,
-
       remarks: request.remarks,
-
       reviewedAt: request.reviewedAt,
-
       issuedAt: request.issuedAt,
-
       rejectionReason: request.rejectionReason,
     }));
 
@@ -153,7 +140,6 @@ export const getItemRequests = async (req, res) => {
     });
   } catch (error) {
     console.error("Get item requests error:", error);
-
     res.status(500).json({
       success: false,
       message: "Failed to fetch item requests",
@@ -600,19 +586,29 @@ export const issueItemRequest = async (req, res) => {
 /**
  * GET /api/item-requests/stats
  */
-export const getItemRequestStats = async (
-  req,
-  res,
-) => {
+export const getItemRequestStats = async (req, res) => {
   try {
-    const stats = await ItemRequest.aggregate([
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
-        },
+    const match = {};
+
+    if (req.user?.role !== "admin") {
+      const userDeptId = req.user?.department?._id || req.user?.department;
+      if (userDeptId) {
+        match.department = new mongoose.Types.ObjectId(userDeptId);
+      }
+    }
+
+    const pipeline = [];
+    if (Object.keys(match).length > 0) {
+      pipeline.push({ $match: match });
+    }
+    pipeline.push({
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
       },
-    ]);
+    });
+
+    const stats = await ItemRequest.aggregate(pipeline);
 
     const result = {
       total: 0,
@@ -624,11 +620,9 @@ export const getItemRequestStats = async (
 
     stats.forEach((stat) => {
       const key = stat._id?.toLowerCase();
-
       if (key && key in result) {
         result[key] = stat.count;
       }
-
       result.total += stat.count;
     });
 
@@ -638,7 +632,6 @@ export const getItemRequestStats = async (
     });
   } catch (error) {
     console.error("Request stats error:", error);
-
     res.status(500).json({
       success: false,
       message: "Failed to fetch request statistics",
