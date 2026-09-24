@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpFromLine,
   CalendarDays,
@@ -13,127 +13,459 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import api from "../api/axios";
 
 const StockOut = () => {
+  const [stockOutRecords, setStockOutRecords] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [requests, setRequests] = useState([]);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const [stockOutRecords] = useState([
-    {
-      id: "SOUT-001",
-      item: "A4 Copier Paper",
-      category: "Stationery",
-      quantity: 20,
-      department: "Office Administration",
-      issuedTo: "Rajesh Kumar",
-      purpose: "Office documentation",
-      issueDate: "2026-08-26",
-      issuedBy: "Inventory Officer",
-      status: "Issued",
-      remarks: "Regular office requirement.",
-    },
-    {
-      id: "SOUT-002",
-      item: "Desktop Computer",
-      category: "IT Equipment",
-      quantity: 2,
-      department: "Computer Science",
-      issuedTo: "Dr. Priya Sharma",
-      purpose: "Computer laboratory",
-      issueDate: "2026-08-24",
-      issuedBy: "Administrator",
-      status: "Issued",
-      remarks: "Issued to Computer Science Department.",
-    },
-    {
-      id: "SOUT-003",
-      item: "Office Chair",
-      category: "Furniture",
-      quantity: 5,
-      department: "Commerce",
-      issuedTo: "Suresh Babu",
-      purpose: "Faculty seating",
-      issueDate: "2026-08-21",
-      issuedBy: "Inventory Officer",
-      status: "Issued",
-      remarks: "Issued against approved department request.",
-    },
-    {
-      id: "SOUT-004",
-      item: "LED Projector",
-      category: "Electronics",
-      quantity: 1,
-      department: "English",
-      issuedTo: "Dr. Anitha Rao",
-      purpose: "Seminar presentation",
-      issueDate: "2026-08-20",
-      issuedBy: "Administrator",
-      status: "Pending",
-      remarks: "Awaiting final authorization.",
-    },
-    {
-      id: "SOUT-005",
-      item: "Whiteboard Marker",
-      category: "Classroom Supplies",
-      quantity: 30,
-      department: "Mathematics",
-      issuedTo: "Prof. Mahesh",
-      purpose: "Classroom teaching",
-      issueDate: "2026-08-17",
-      issuedBy: "Inventory Officer",
-      status: "Issued",
-      remarks: "Monthly classroom requirement.",
-    },
-    {
-      id: "SOUT-006",
-      item: "Ball Pen - Blue",
-      category: "Stationery",
-      quantity: 50,
-      department: "Administration",
-      issuedTo: "Admin Office",
-      purpose: "Official use",
-      issueDate: "2026-08-14",
-      issuedBy: "Inventory Officer",
-      status: "Cancelled",
-      remarks: "Request cancelled by department.",
-    },
-  ]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [formData, setFormData] = useState({
+    stockOutNo: "",
+    inventory: "",
+    quantity: "",
+    department: "",
+    issuedTo: "",
+    issuedDate: "",
+    request: "",
+    notes: "",
+  });
+
+  // =====================================================
+  // RESPONSE ARRAY HELPER
+  // =====================================================
+
+  const extractArray = (responseData, keys = []) => {
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+
+    for (const key of keys) {
+      if (Array.isArray(responseData?.[key])) {
+        return responseData[key];
+      }
+    }
+
+    if (Array.isArray(responseData?.data)) {
+      return responseData.data;
+    }
+
+    return [];
+  };
+
+  // =====================================================
+  // FETCH STOCK OUT
+  // =====================================================
+
+  const fetchStockOuts = async () => {
+    const response = await api.get("/stock-out");
+
+    return extractArray(response.data, ["stockOuts", "stockOut", "records"]);
+  };
+
+  // =====================================================
+  // FETCH INVENTORY
+  // =====================================================
+
+  const fetchInventory = async () => {
+    const response = await api.get("/inventory");
+
+    return extractArray(response.data, [
+      "inventory",
+      "items",
+      "inventoryItems",
+    ]);
+  };
+
+  // =====================================================
+  // FETCH DEPARTMENTS
+  // =====================================================
+
+  const fetchDepartments = async () => {
+    try {
+      let response;
+
+      try {
+        response = await api.get("/departments");
+      } catch {
+        response = await api.get("/department");
+      }
+
+      return extractArray(response.data, [
+        "departments",
+        "department",
+        "items",
+      ]);
+    } catch (error) {
+      console.error("Fetch departments error:", error);
+
+      return [];
+    }
+  };
+
+  // =====================================================
+  // FETCH REQUESTS
+  // =====================================================
+
+  const fetchRequests = async () => {
+    try {
+      let response;
+
+      try {
+        response = await api.get("/requests");
+      } catch {
+        response = await api.get("/requests");
+      }
+
+      return extractArray(response.data, ["itemRequests", "requests", "items"]);
+    } catch (error) {
+      console.error("Fetch item requests error:", error);
+
+      return [];
+    }
+  };
+
+  // =====================================================
+  // INITIAL LOAD
+  // =====================================================
+
+  const fetchAllData = async () => {
+    try {
+      setLoading(true);
+
+      const [stockOutData, inventoryData, departmentData, requestData] =
+        await Promise.all([
+          fetchStockOuts(),
+          fetchInventory(),
+          fetchDepartments(),
+          fetchRequests(),
+        ]);
+
+      setStockOutRecords(stockOutData);
+      setInventoryItems(inventoryData);
+      setDepartments(departmentData);
+      setRequests(requestData);
+    } catch (error) {
+      console.error("Fetch stock out data error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to load stock out records",
+      );
+
+      setStockOutRecords([]);
+      setInventoryItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  // =====================================================
+  // GENERIC VALUE HELPERS
+  // =====================================================
+
+  const getId = (value) => {
+    if (!value) return "";
+
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (typeof value === "object") {
+      return value._id || value.id || value.value || value.code || "";
+    }
+
+    return String(value);
+  };
+
+  const getDisplayValue = (value, fallback = "—") => {
+    if (value === null || value === undefined) {
+      return fallback;
+    }
+
+    if (typeof value === "string" || typeof value === "number") {
+      return String(value);
+    }
+
+    if (typeof value === "object") {
+      return (
+        value.name ||
+        value.departmentName ||
+        value.itemName ||
+        value.item ||
+        value.categoryName ||
+        value.requestNo ||
+        value.stockOutNo ||
+        value.code ||
+        value._id ||
+        fallback
+      );
+    }
+
+    return fallback;
+  };
+
+  // =====================================================
+  // STOCK OUT HELPERS
+  // =====================================================
+
+  const getRecordId = (record) => {
+    return record?._id || record?.id || "";
+  };
+
+  const getStockOutNo = (record) => {
+    return record?.stockOutNo || record?.id || record?._id || "—";
+  };
+
+  const getItemName = (record) => {
+    const inventory = record?.inventory;
+
+    if (inventory && typeof inventory === "object") {
+      return (
+        inventory.name ||
+        inventory.itemName ||
+        inventory.item ||
+        inventory.itemCode ||
+        "—"
+      );
+    }
+
+    return record?.itemName || record?.item || "—";
+  };
+
+  const getItemCategory = (record) => {
+    const inventory = record?.inventory;
+
+    if (inventory && typeof inventory === "object") {
+      return getDisplayValue(inventory.category, "—");
+    }
+
+    return getDisplayValue(record?.category, "—");
+  };
+
+  const getQuantity = (record) => {
+    return Number(record?.quantity ?? 0);
+  };
+
+  const getUnit = (record) => {
+    const inventory = record?.inventory;
+
+    if (inventory && typeof inventory === "object") {
+      return inventory.unit || inventory.uom || "units";
+    }
+
+    return record?.unit || "units";
+  };
+
+  const getDepartment = (record) => {
+    return getDisplayValue(record?.department, record?.departmentName || "—");
+  };
+
+  const getDepartmentCode = (record) => {
+    const department = record?.department;
+
+    if (department && typeof department === "object") {
+      return department.code || department.departmentCode || "";
+    }
+
+    return "";
+  };
+
+  const getIssuedTo = (record) => {
+    return record?.issuedTo || record?.issued_to || "—";
+  };
+
+  const getIssueDate = (record) => {
+    const date =
+      record?.issuedDate ||
+      record?.issueDate ||
+      record?.date ||
+      record?.createdAt;
+
+    if (!date) {
+      return "—";
+    }
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "—";
+    }
+
+    return parsedDate.toLocaleDateString("en-GB");
+  };
+
+  const getRequestNo = (record) => {
+    const request = record?.request;
+
+    if (request && typeof request === "object") {
+      return (
+        request.requestNo ||
+        request.requestNumber ||
+        request.code ||
+        request._id ||
+        "—"
+      );
+    }
+
+    return request || "—";
+  };
+
+  const getNotes = (record) => {
+    return record?.notes || record?.remarks || "No remarks provided.";
+  };
+
+  const getStatus = (record) => {
+    /*
+      StockOut schema does not contain a status field.
+
+      A successful Stock Out is therefore treated
+      as "Issued" in this UI.
+    */
+    if (record?.status) {
+      return record.status;
+    }
+
+    return "Issued";
+  };
+
+  // =====================================================
+  // INVENTORY HELPERS
+  // =====================================================
+
+  const getInventoryId = (item) => {
+    return item?._id || item?.id || item?.itemId || "";
+  };
+
+  const getInventoryName = (item) => {
+    return (
+      item?.name ||
+      item?.item ||
+      item?.itemName ||
+      item?.itemCode ||
+      "Unnamed Item"
+    );
+  };
+
+  const getInventoryCategory = (item) => {
+    const category = item?.category;
+
+    if (category && typeof category === "object") {
+      return category.name || category.categoryName || category.code || "";
+    }
+
+    return category || item?.categoryName || "";
+  };
+
+  const getInventoryUnit = (item) => {
+    return item?.unit || item?.uom || "units";
+  };
+
+  const getInventoryAvailable = (item) => {
+    return Number(
+      item?.available ?? item?.availableQuantity ?? item?.currentStock ?? 0,
+    );
+  };
+
+  // =====================================================
+  // DEPARTMENT HELPERS
+  // =====================================================
+
+  const getDepartmentId = (department) => {
+    return department?._id || department?.id || "";
+  };
+
+  const getDepartmentName = (department) => {
+    return (
+      department?.name ||
+      department?.departmentName ||
+      department?.code ||
+      "Unnamed Department"
+    );
+  };
+
+  // =====================================================
+  // REQUEST HELPERS
+  // =====================================================
+
+  const getRequestId = (request) => {
+    return request?._id || request?.id || "";
+  };
+
+  const getRequestName = (request) => {
+    return (
+      request?.requestNo ||
+      request?.requestNumber ||
+      request?.code ||
+      request?.name ||
+      "Unnamed Request"
+    );
+  };
+
+  // =====================================================
+  // FILTER
+  // =====================================================
 
   const filteredRecords = useMemo(() => {
-    return stockOutRecords.filter((record) => {
-      const query = search.toLowerCase();
+    const query = search.trim().toLowerCase();
 
-      const matchesSearch =
-        record.id.toLowerCase().includes(query) ||
-        record.item.toLowerCase().includes(query) ||
-        record.department.toLowerCase().includes(query) ||
-        record.issuedTo.toLowerCase().includes(query) ||
-        record.purpose.toLowerCase().includes(query) ||
-        record.category.toLowerCase().includes(query);
+    return stockOutRecords.filter((record) => {
+      const searchableText = [
+        getStockOutNo(record),
+        getItemName(record),
+        getItemCategory(record),
+        getDepartment(record),
+        getDepartmentCode(record),
+        getIssuedTo(record),
+        getRequestNo(record),
+        getNotes(record),
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+
+      const matchesSearch = !query || searchableText.includes(query);
 
       const matchesStatus =
-        statusFilter === "All" ||
-        record.status === statusFilter;
+        statusFilter === "All" || getStatus(record) === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
   }, [stockOutRecords, search, statusFilter]);
 
+  // =====================================================
+  // SUMMARY
+  // =====================================================
+
   const totalRecords = stockOutRecords.length;
 
   const issuedRecords = stockOutRecords.filter(
-    (record) => record.status === "Issued",
+    (record) => getStatus(record) === "Issued",
   ).length;
 
   const pendingRecords = stockOutRecords.filter(
-    (record) => record.status === "Pending",
+    (record) => getStatus(record) === "Pending",
   ).length;
 
   const totalQuantityIssued = stockOutRecords
-    .filter((record) => record.status === "Issued")
-    .reduce((sum, record) => sum + record.quantity, 0);
+    .filter((record) => getStatus(record) === "Issued")
+    .reduce((sum, record) => sum + getQuantity(record), 0);
+
+  // =====================================================
+  // STATUS STYLE
+  // =====================================================
 
   const getStatusStyle = (status) => {
     switch (status) {
@@ -151,12 +483,225 @@ const StockOut = () => {
     }
   };
 
-  const handleSaveStockOut = (event) => {
-    event.preventDefault();
+  // =====================================================
+  // OPEN ADD MODAL
+  // =====================================================
 
-    toast.success("Stock Out record created successfully");
+  const openAddModal = () => {
+    const today = new Date().toISOString().split("T")[0];
+
+    setFormData({
+      stockOutNo: "",
+      inventory: "",
+      quantity: "",
+      department: "",
+      issuedTo: "",
+      issuedDate: today,
+      request: "",
+      notes: "",
+    });
+
+    setShowAddModal(true);
+  };
+
+  const closeAddModal = () => {
+    if (submitting) {
+      return;
+    }
+
     setShowAddModal(false);
   };
+
+  // =====================================================
+  // ITEM CHANGE
+  // =====================================================
+
+  const handleItemChange = (event) => {
+    const selectedId = event.target.value;
+
+    setFormData((prev) => ({
+      ...prev,
+      inventory: selectedId,
+    }));
+  };
+
+  // =====================================================
+  // DEPARTMENT CHANGE
+  // =====================================================
+
+  const handleDepartmentChange = (event) => {
+    setFormData((prev) => ({
+      ...prev,
+      department: event.target.value,
+    }));
+  };
+
+  // =====================================================
+  // REQUEST CHANGE
+  // =====================================================
+
+  const handleRequestChange = (event) => {
+    setFormData((prev) => ({
+      ...prev,
+      request: event.target.value,
+    }));
+  };
+
+  // =====================================================
+  // SAVE STOCK OUT
+  // =====================================================
+
+  const handleSaveStockOut = async (event) => {
+    event.preventDefault();
+
+    if (!formData.inventory) {
+      toast.error("Please select an inventory item");
+      return;
+    }
+
+    if (!formData.quantity) {
+      toast.error("Quantity is required");
+      return;
+    }
+
+    const quantity = Number(formData.quantity);
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Quantity must be greater than zero");
+      return;
+    }
+
+    if (!formData.department) {
+      toast.error("Department is required");
+      return;
+    }
+
+    if (!formData.issuedTo.trim()) {
+      toast.error("Issued To is required");
+      return;
+    }
+
+    if (!formData.issuedDate) {
+      toast.error("Issue date is required");
+      return;
+    }
+
+    // -------------------------------------------------
+    // CHECK INVENTORY
+    // -------------------------------------------------
+
+    const selectedInventoryItem = inventoryItems.find(
+      (item) => String(getInventoryId(item)) === String(formData.inventory),
+    );
+
+    if (!selectedInventoryItem) {
+      toast.error("Selected inventory item was not found");
+      return;
+    }
+
+    const available = getInventoryAvailable(selectedInventoryItem);
+
+    if (quantity > available) {
+      toast.error(
+        `Only ${available} ${getInventoryUnit(
+          selectedInventoryItem,
+        )} available in stock`,
+      );
+      return;
+    }
+
+    // -------------------------------------------------
+    // SAVE
+    // -------------------------------------------------
+
+    try {
+      setSubmitting(true);
+
+      const payload = {
+        stockOutNo: formData.stockOutNo.trim() || undefined,
+
+        department: formData.department,
+
+        inventory: formData.inventory,
+
+        quantity,
+
+        issuedDate: formData.issuedDate,
+
+        issuedTo: formData.issuedTo.trim(),
+
+        request: formData.request || null,
+
+        notes: formData.notes.trim() || "",
+      };
+
+      console.log("Creating Stock Out:", payload);
+
+      const response = await api.post("/stock-out", payload);
+
+      if (response.data?.success) {
+        toast.success(
+          response.data.message || "Stock Out created successfully",
+        );
+
+        setShowAddModal(false);
+
+        /*
+          Reload both Stock Out and Inventory.
+
+          This is safer than manually modifying
+          local inventory because the backend has
+          already reduced the actual inventory.
+        */
+        try {
+          const [stockOutData, inventoryData] = await Promise.all([
+            fetchStockOuts(),
+            fetchInventory(),
+          ]);
+
+          setStockOutRecords(stockOutData);
+
+          setInventoryItems(inventoryData);
+        } catch (refreshError) {
+          console.error("Refresh after stock out error:", refreshError);
+
+          /*
+            If refresh fails, still add the returned
+            record so the user sees the newly created
+            Stock Out.
+          */
+          if (response.data?.stockOut) {
+            setStockOutRecords((prev) => [response.data.stockOut, ...prev]);
+          }
+        }
+
+        setFormData({
+          stockOutNo: "",
+          inventory: "",
+          quantity: "",
+          department: "",
+          issuedTo: "",
+          issuedDate: "",
+          request: "",
+          notes: "",
+        });
+      }
+    } catch (error) {
+      console.error("Create stock out error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to create Stock Out record",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // =====================================================
+  // RENDER
+  // =====================================================
 
   return (
     <div className="space-y-6">
@@ -181,7 +726,8 @@ const StockOut = () => {
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
+          type="button"
+          onClick={openAddModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
         >
           <Plus className="w-4 h-4" />
@@ -248,236 +794,249 @@ const StockOut = () => {
               className="w-full xl:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             >
               <option value="All">All Status</option>
+
               <option value="Issued">Issued</option>
+
               <option value="Pending">Pending</option>
+
               <option value="Cancelled">Cancelled</option>
             </select>
           </div>
         </div>
 
-        {/* DESKTOP TABLE */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Stock Out
-                </th>
+        {/* LOADING */}
+        {loading ? (
+          <div className="py-16 text-center">
+            <div className="w-8 h-8 mx-auto border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Item
-                </th>
+            <p className="mt-4 text-sm text-slate-500">
+              Loading stock out records...
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* DESKTOP TABLE */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Stock Out
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Department
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Item
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Issued To
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Department
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Quantity
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Issued To
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Date
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Quantity
+                    </th>
 
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Status
-                </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Date
+                    </th>
 
-                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Status
+                    </th>
 
-            <tbody className="divide-y divide-slate-100">
-              {filteredRecords.map((record) => (
-                <tr
-                  key={record.id}
-                  className="hover:bg-slate-50/70 transition-colors"
-                >
-                  {/* ID */}
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-indigo-600">
-                      {record.id}
-                    </p>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
 
-                    <p className="text-xs text-slate-400 mt-1">
-                      {record.purpose}
-                    </p>
-                  </td>
-
-                  {/* ITEM */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                        <Package className="w-4 h-4 text-slate-500" />
-                      </div>
-
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {record.item}
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRecords.map((record) => (
+                    <tr
+                      key={getRecordId(record)}
+                      className="hover:bg-slate-50/70 transition-colors"
+                    >
+                      {/* STOCK OUT */}
+                      <td className="px-5 py-4">
+                        <p className="text-sm font-medium text-indigo-600">
+                          {getStockOutNo(record)}
                         </p>
 
                         <p className="text-xs text-slate-400 mt-1">
-                          {record.category}
+                          {getRequestNo(record) !== "—"
+                            ? `Request: ${getRequestNo(record)}`
+                            : "Direct issue"}
+                        </p>
+                      </td>
+
+                      {/* ITEM */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                            <Package className="w-4 h-4 text-slate-500" />
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">
+                              {getItemName(record)}
+                            </p>
+
+                            <p className="text-xs text-slate-400 mt-1">
+                              {getItemCategory(record)}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* DEPARTMENT */}
+                      <td className="px-5 py-4">
+                        <p className="text-sm text-slate-700">
+                          {getDepartment(record)}
+                        </p>
+
+                        {getDepartmentCode(record) && (
+                          <p className="text-xs text-slate-400 mt-1">
+                            {getDepartmentCode(record)}
+                          </p>
+                        )}
+                      </td>
+
+                      {/* ISSUED TO */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <UserRound className="w-4 h-4 text-slate-400" />
+
+                          <span className="text-sm text-slate-700">
+                            {getIssuedTo(record)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* QUANTITY */}
+                      <td className="px-5 py-4">
+                        <span className="text-sm font-semibold text-slate-800">
+                          {getQuantity(record)}
+                        </span>
+
+                        <span className="text-xs text-slate-400 ml-1">
+                          {getUnit(record)}
+                        </span>
+                      </td>
+
+                      {/* DATE */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                          <CalendarDays className="w-4 h-4 text-slate-400" />
+
+                          {getIssueDate(record)}
+                        </div>
+                      </td>
+
+                      {/* STATUS */}
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
+                            getStatus(record),
+                          )}`}
+                        >
+                          {getStatus(record)}
+                        </span>
+                      </td>
+
+                      {/* ACTION */}
+                      <td className="px-5 py-4">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRecord(record)}
+                            className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
+                            title="View details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {filteredRecords.length === 0 && <EmptyState />}
+            </div>
+
+            {/* MOBILE */}
+            <div className="lg:hidden divide-y divide-slate-100">
+              {filteredRecords.map((record) => (
+                <div key={getRecordId(record)} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                        <Package className="w-4 h-4 text-slate-500" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {getItemName(record)}
+                        </p>
+
+                        <p className="text-xs text-indigo-600 mt-1">
+                          {getStockOutNo(record)}
                         </p>
                       </div>
                     </div>
-                  </td>
 
-                  {/* DEPARTMENT */}
-                  <td className="px-5 py-4">
-                    <p className="text-sm text-slate-700">
-                      {record.department}
-                    </p>
-                  </td>
-
-                  {/* ISSUED TO */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2">
-                      <UserRound className="w-4 h-4 text-slate-400" />
-
-                      <span className="text-sm text-slate-700">
-                        {record.issuedTo}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* QUANTITY */}
-                  <td className="px-5 py-4">
-                    <span className="text-sm font-semibold text-slate-800">
-                      {record.quantity}
-                    </span>
-
-                    <span className="text-xs text-slate-400 ml-1">
-                      units
-                    </span>
-                  </td>
-
-                  {/* DATE */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <CalendarDays className="w-4 h-4 text-slate-400" />
-
-                      {record.issueDate}
-                    </div>
-                  </td>
-
-                  {/* STATUS */}
-                  <td className="px-5 py-4">
                     <span
-                      className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
-                        record.status,
+                      className={`shrink-0 inline-flex px-2 py-1 rounded-full border text-[11px] font-medium ${getStatusStyle(
+                        getStatus(record),
                       )}`}
                     >
-                      {record.status}
+                      {getStatus(record)}
                     </span>
-                  </td>
-
-                  {/* ACTION */}
-                  <td className="px-5 py-4">
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => setSelectedRecord(record)}
-                        className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
-                        title="View details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {filteredRecords.length === 0 && <EmptyState />}
-        </div>
-
-        {/* MOBILE CARDS */}
-        <div className="lg:hidden divide-y divide-slate-100">
-          {filteredRecords.map((record) => (
-            <div key={record.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                    <Package className="w-4 h-4 text-slate-500" />
                   </div>
 
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
-                      {record.item}
-                    </p>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <Info label="Department" value={getDepartment(record)} />
 
-                    <p className="text-xs text-indigo-600 mt-1">
-                      {record.id}
-                    </p>
+                    <Info label="Issued To" value={getIssuedTo(record)} />
+
+                    <Info
+                      label="Quantity"
+                      value={`${getQuantity(record)} ${getUnit(record)}`}
+                    />
+
+                    <Info label="Issue Date" value={getIssueDate(record)} />
+
+                    <Info label="Request No." value={getRequestNo(record)} />
+
+                    <Info label="Category" value={getItemCategory(record)} />
+                  </div>
+
+                  <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRecord(record)}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      <Eye className="w-4 h-4" />
+                      View Details
+                    </button>
                   </div>
                 </div>
+              ))}
 
-                <span
-                  className={`shrink-0 inline-flex px-2 py-1 rounded-full border text-[11px] font-medium ${getStatusStyle(
-                    record.status,
-                  )}`}
-                >
-                  {record.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <Info
-                  label="Department"
-                  value={record.department}
-                />
-
-                <Info
-                  label="Issued To"
-                  value={record.issuedTo}
-                />
-
-                <Info
-                  label="Quantity"
-                  value={`${record.quantity} units`}
-                />
-
-                <Info
-                  label="Issue Date"
-                  value={record.issueDate}
-                />
-
-                <Info
-                  label="Purpose"
-                  value={record.purpose}
-                />
-
-                <Info
-                  label="Category"
-                  value={record.category}
-                />
-              </div>
-
-              <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
-                <button
-                  onClick={() => setSelectedRecord(record)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
-                >
-                  <Eye className="w-4 h-4" />
-                  View Details
-                </button>
-              </div>
+              {filteredRecords.length === 0 && <EmptyState />}
             </div>
-          ))}
-
-          {filteredRecords.length === 0 && <EmptyState />}
-        </div>
+          </>
+        )}
       </div>
 
-      {/* DETAILS MODAL */}
+      {/* =====================================================
+          DETAILS MODAL
+      ====================================================== */}
       {selectedRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -489,7 +1048,7 @@ const StockOut = () => {
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <p className="text-xs text-indigo-600 font-medium">
-                  {selectedRecord.id}
+                  {getStockOutNo(selectedRecord)}
                 </p>
 
                 <h2 className="text-lg font-semibold text-slate-900 mt-1">
@@ -498,6 +1057,7 @@ const StockOut = () => {
               </div>
 
               <button
+                type="button"
                 onClick={() => setSelectedRecord(null)}
                 className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
@@ -515,11 +1075,11 @@ const StockOut = () => {
 
                   <div>
                     <h3 className="font-semibold text-slate-900">
-                      {selectedRecord.item}
+                      {getItemName(selectedRecord)}
                     </h3>
 
                     <p className="text-sm text-slate-500 mt-1">
-                      {selectedRecord.category}
+                      {getItemCategory(selectedRecord)}
                     </p>
                   </div>
                 </div>
@@ -528,26 +1088,22 @@ const StockOut = () => {
               {/* STATUS */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-400">
-                    Status
-                  </p>
+                  <p className="text-xs text-slate-400">Status</p>
 
                   <span
                     className={`inline-flex mt-1 px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
-                      selectedRecord.status,
+                      getStatus(selectedRecord),
                     )}`}
                   >
-                    {selectedRecord.status}
+                    {getStatus(selectedRecord)}
                   </span>
                 </div>
 
                 <div className="text-right">
-                  <p className="text-xs text-slate-400">
-                    Issue Date
-                  </p>
+                  <p className="text-xs text-slate-400">Issue Date</p>
 
                   <p className="text-sm font-medium text-slate-800 mt-1">
-                    {selectedRecord.issueDate}
+                    {getIssueDate(selectedRecord)}
                   </p>
                 </div>
               </div>
@@ -556,49 +1112,47 @@ const StockOut = () => {
               <div className="grid grid-cols-2 gap-4">
                 <Detail
                   label="Department"
-                  value={selectedRecord.department}
+                  value={getDepartment(selectedRecord)}
                 />
 
-                <Detail
-                  label="Issued To"
-                  value={selectedRecord.issuedTo}
-                />
+                <Detail label="Issued To" value={getIssuedTo(selectedRecord)} />
 
                 <Detail
                   label="Quantity"
-                  value={`${selectedRecord.quantity} units`}
+                  value={`${getQuantity(selectedRecord)} ${getUnit(
+                    selectedRecord,
+                  )}`}
                 />
 
                 <Detail
-                  label="Purpose"
-                  value={selectedRecord.purpose}
+                  label="Request No."
+                  value={getRequestNo(selectedRecord)}
                 />
 
                 <Detail
-                  label="Issued By"
-                  value={selectedRecord.issuedBy}
+                  label="Inventory ID"
+                  value={getId(selectedRecord.inventory)}
                 />
 
                 <Detail
-                  label="Category"
-                  value={selectedRecord.category}
+                  label="Stock Out No."
+                  value={getStockOutNo(selectedRecord)}
                 />
               </div>
 
-              {/* REMARKS */}
+              {/* NOTES */}
               <div>
-                <p className="text-xs text-slate-400">
-                  Remarks
-                </p>
+                <p className="text-xs text-slate-400">Notes</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
-                  {selectedRecord.remarks}
+                  {getNotes(selectedRecord)}
                 </p>
               </div>
             </div>
 
             <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
               <button
+                type="button"
                 onClick={() => setSelectedRecord(null)}
                 className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
               >
@@ -609,12 +1163,14 @@ const StockOut = () => {
         </div>
       )}
 
-      {/* ADD STOCK OUT MODAL */}
+      {/* =====================================================
+          ADD STOCK OUT MODAL
+      ====================================================== */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            onClick={() => setShowAddModal(false)}
+            onClick={closeAddModal}
           />
 
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
@@ -631,8 +1187,10 @@ const StockOut = () => {
               </div>
 
               <button
-                onClick={() => setShowAddModal(false)}
-                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"
+                type="button"
+                onClick={closeAddModal}
+                disabled={submitting}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -642,74 +1200,247 @@ const StockOut = () => {
             <form onSubmit={handleSaveStockOut}>
               <div className="p-5 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* STOCK OUT NO */}
                   <FormField
-                    label="Item"
-                    placeholder="Select item"
-                    required
+                    label="Stock Out No."
+                    value={formData.stockOutNo}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        stockOutNo: e.target.value,
+                      }))
+                    }
+                    placeholder="Auto generated"
+                    disabled={submitting}
                   />
 
+                  {/* ITEM */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Item
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
+
+                    <select
+                      value={formData.inventory}
+                      onChange={handleItemChange}
+                      required
+                      disabled={submitting || inventoryItems.length === 0}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
+                    >
+                      <option value="">
+                        {inventoryItems.length === 0
+                          ? "No inventory items available"
+                          : "Select item"}
+                      </option>
+
+                      {inventoryItems.map((item) => {
+                        const inventoryId = getInventoryId(item);
+
+                        const available = getInventoryAvailable(item);
+
+                        return (
+                          <option key={inventoryId} value={inventoryId}>
+                            {getInventoryName(item)} — {available} available
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* QUANTITY */}
                   <FormField
                     label="Quantity"
                     type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={formData.quantity}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        quantity: e.target.value,
+                      }))
+                    }
                     placeholder="0"
                     required
+                    disabled={submitting}
                   />
 
-                  <FormField
-                    label="Department"
-                    placeholder="Select department"
-                    required
-                  />
+                  {/* DEPARTMENT */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Department
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
 
+                    <select
+                      value={formData.department}
+                      onChange={handleDepartmentChange}
+                      required
+                      disabled={submitting || departments.length === 0}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
+                    >
+                      <option value="">
+                        {departments.length === 0
+                          ? "No departments available"
+                          : "Select department"}
+                      </option>
+
+                      {departments.map((department) => {
+                        const id = getDepartmentId(department);
+
+                        return (
+                          <option key={id} value={id}>
+                            {getDepartmentName(department)}
+                            {department?.code ? ` (${department.code})` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* ISSUED TO */}
                   <FormField
                     label="Issued To"
+                    value={formData.issuedTo}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        issuedTo: e.target.value,
+                      }))
+                    }
                     placeholder="Staff / Faculty name"
                     required
+                    disabled={submitting}
                   />
 
+                  {/* ISSUE DATE */}
                   <FormField
                     label="Issue Date"
                     type="date"
+                    value={formData.issuedDate}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        issuedDate: e.target.value,
+                      }))
+                    }
                     required
+                    disabled={submitting}
                   />
 
-                  <FormField
-                    label="Purpose"
-                    placeholder="Reason for issuing"
-                    required
-                  />
+                  {/* REQUEST */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Request No.
+                      <span className="text-xs text-slate-400 ml-2 font-normal">
+                        Optional
+                      </span>
+                    </label>
+
+                    <select
+                      value={formData.request}
+                      onChange={handleRequestChange}
+                      disabled={submitting || requests.length === 0}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
+                    >
+                      <option value="">
+                        {requests.length === 0
+                          ? "No item requests available"
+                          : "No request / direct issue"}
+                      </option>
+
+                      {requests.map((request) => {
+                        const id = getRequestId(request);
+
+                        return (
+                          <option key={id} value={id}>
+                            {getRequestName(request)}
+                            {request?.status ? ` — ${request.status}` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {requests.length === 0 && (
+                      <p className="text-xs text-slate-400 mt-1.5">
+                        Request selection is optional. You can create a direct
+                        Stock Out.
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                {/* AUTHORIZATION */}
+                {/* SELECTED ITEM INFO */}
+                {formData.inventory && (
+                  <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+                    {(() => {
+                      const selected = inventoryItems.find(
+                        (inventoryItem) =>
+                          String(getInventoryId(inventoryItem)) ===
+                          String(formData.inventory),
+                      );
+
+                      if (!selected) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-xs text-indigo-500">
+                              Selected Item
+                            </p>
+
+                            <p className="text-sm font-semibold text-indigo-900 mt-1">
+                              {getInventoryName(selected)}
+                            </p>
+
+                            <p className="text-xs text-indigo-600 mt-1">
+                              {getInventoryCategory(selected) || "No category"}{" "}
+                              • {getInventoryUnit(selected)}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-xs text-indigo-500">Available</p>
+
+                            <p className="text-lg font-semibold text-indigo-900 mt-1">
+                              {getInventoryAvailable(selected)}{" "}
+                              {getInventoryUnit(selected)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* NOTES */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Authorization / Request No.
-                  </label>
-
-                  <input
-                    type="text"
-                    placeholder="REQ-2026-012"
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* REMARKS */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Remarks
+                    Notes
                   </label>
 
                   <textarea
                     rows="3"
+                    value={formData.notes}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        notes: e.target.value,
+                      }))
+                    }
                     placeholder="Enter additional information..."
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    disabled={submitting}
+                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
                   />
                 </div>
 
                 {/* WARNING */}
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
-                  Stock availability should be verified before issuing
-                  inventory to the department.
+                  Available stock is checked before submitting. The backend also
+                  validates the available stock before reducing inventory.
                 </div>
               </div>
 
@@ -717,18 +1448,21 @@ const StockOut = () => {
               <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+                  onClick={closeAddModal}
+                  disabled={submitting}
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <ArrowUpFromLine className="w-4 h-4" />
-                  Save Stock Out
+
+                  {submitting ? "Saving..." : "Save Stock Out"}
                 </button>
               </div>
             </form>
@@ -739,7 +1473,9 @@ const StockOut = () => {
   );
 };
 
-/* SUMMARY CARD */
+/* =====================================================
+   SUMMARY CARD
+===================================================== */
 
 const SummaryCard = ({
   title,
@@ -755,9 +1491,7 @@ const SummaryCard = ({
         <div>
           <p className="text-sm text-slate-500">{title}</p>
 
-          <h2
-            className={`${valueClass} font-semibold text-slate-900 mt-2`}
-          >
+          <h2 className={`${valueClass} font-semibold text-slate-900 mt-2`}>
             {value}
           </h2>
         </div>
@@ -772,69 +1506,112 @@ const SummaryCard = ({
   );
 };
 
-/* INFO */
+/* =====================================================
+   INFO
+===================================================== */
 
 const Info = ({ label, value }) => {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-xs text-slate-700 mt-1 truncate">
-        {value}
+      <p
+        className="text-xs text-slate-700 mt-1 truncate"
+        title={String(value ?? "—")}
+      >
+        {getSafeText(value)}
       </p>
     </div>
   );
 };
 
-/* DETAIL */
+/* =====================================================
+   DETAIL
+===================================================== */
 
 const Detail = ({ label, value }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-sm font-medium text-slate-800 mt-1">
-        {value}
+      <p className="text-sm font-medium text-slate-800 mt-1 break-words">
+        {getSafeText(value)}
       </p>
     </div>
   );
 };
 
-/* FORM FIELD */
+/* =====================================================
+   SAFE TEXT
+===================================================== */
+
+const getSafeText = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "object") {
+    return (
+      value.name ||
+      value.departmentName ||
+      value.itemName ||
+      value.item ||
+      value.requestNo ||
+      value.stockOutNo ||
+      value.code ||
+      value._id ||
+      "—"
+    );
+  }
+
+  return "—";
+};
+
+/* =====================================================
+   FORM FIELD
+===================================================== */
 
 const FormField = ({
   label,
   type = "text",
   placeholder,
   required,
+  value,
+  onChange,
+  disabled,
+  min,
+  step,
 }) => {
   return (
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
 
-        {required && (
-          <span className="text-rose-500 ml-1">
-            *
-          </span>
-        )}
+        {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
 
       <input
         type={type}
+        value={value}
+        onChange={onChange}
         placeholder={placeholder}
         required={required}
-        className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+        disabled={disabled}
+        min={min}
+        step={step}
+        className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-500"
       />
     </div>
   );
 };
 
-/* EMPTY STATE */
+/* =====================================================
+   EMPTY STATE
+===================================================== */
 
 const EmptyState = () => {
   return (
