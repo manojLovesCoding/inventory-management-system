@@ -115,7 +115,7 @@ const StockIn = () => {
         receivedDate: formData.receivedDate,
         supplier: formData.supplier.trim(),
         receivedBy: formData.receivedBy.trim(),
-
+        status: "Received",
         item: {
           itemId: formData.itemId.trim(),
           item: formData.item.trim(),

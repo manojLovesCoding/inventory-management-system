@@ -186,6 +186,25 @@ export const getInventoryById = async (req, res) => {
 // CREATE INVENTORY ITEM FROM PURCHASE
 // ======================================================
 
+// Helper for sequential code if user leaves itemCode empty
+const generateSequentialItemCode = async () => {
+  const prefix = "ITM-";
+  const lastItem = await Inventory.findOne({
+    itemCode: new RegExp(`^${prefix}`),
+  })
+    .sort({ createdAt: -1 })
+    .select("itemCode");
+
+  let nextNum = 1;
+  if (lastItem?.itemCode) {
+    const rawNumber = parseInt(lastItem.itemCode.replace(prefix, ""), 10);
+    if (!Number.isNaN(rawNumber)) {
+      nextNum = rawNumber + 1;
+    }
+  }
+  return `${prefix}${String(nextNum).padStart(4, "0")}`;
+};
+
 export const createInventory = async (req, res) => {
   try {
     const {
@@ -198,10 +217,6 @@ export const createInventory = async (req, res) => {
       minimumStock,
       description,
     } = req.body;
-
-    // -------------------------
-    // VALIDATION
-    // -------------------------
 
     if (!name?.trim()) {
       return res.status(400).json({
@@ -232,7 +247,6 @@ export const createInventory = async (req, res) => {
     }
 
     const parsedQuantity = Number(quantity);
-
     if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
       return res.status(400).json({
         success: false,
@@ -241,7 +255,6 @@ export const createInventory = async (req, res) => {
     }
 
     const parsedMinimumStock = Number(minimumStock) || 0;
-
     if (!Number.isFinite(parsedMinimumStock) || parsedMinimumStock < 0) {
       return res.status(400).json({
         success: false,
@@ -249,12 +262,7 @@ export const createInventory = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // CHECK DEPARTMENT
-    // -------------------------
-
     const departmentExists = await Department.findById(department);
-
     if (!departmentExists) {
       return res.status(404).json({
         success: false,
@@ -262,72 +270,43 @@ export const createInventory = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // ITEM CODE
-    // -------------------------
-
-    const finalItemCode = itemCode?.trim() || `INV-${Date.now()}`;
-
-    // -------------------------
-    // CHECK DUPLICATE ITEM CODE
-    // -------------------------
-
-    const existingInventory = await Inventory.findOne({
-      itemCode: finalItemCode,
-    });
-
-    if (existingInventory) {
-      return res.status(409).json({
-        success: false,
-        message: "An inventory item with this item code already exists",
+    // Determine final item code
+    let finalItemCode = itemCode?.trim();
+    if (!finalItemCode) {
+      finalItemCode = await generateSequentialItemCode();
+    } else {
+      // Check duplicate only if manually specified
+      const existingInventory = await Inventory.findOne({
+        itemCode: finalItemCode,
       });
+
+      if (existingInventory) {
+        return res.status(409).json({
+          success: false,
+          message: `Item code "${finalItemCode}" is already in use. Please enter a unique code or leave it blank.`,
+        });
+      }
     }
 
-    // -------------------------
-    // AVAILABLE QUANTITY
-    // -------------------------
-
     const available = parsedQuantity;
-
-    // -------------------------
-    // STATUS
-    // -------------------------
-
     const status = calculateStatus(available, parsedMinimumStock);
-
-    // -------------------------
-    // CREATE INVENTORY
-    // -------------------------
 
     const inventory = await Inventory.create({
       itemCode: finalItemCode,
-
       name: name.trim(),
-
       category: category.trim(),
-
       department,
-
       unit: unit.trim(),
-
       quantity: parsedQuantity,
-
       available,
-
       minimumStock: parsedMinimumStock,
-
       status,
-
       description: description?.trim() || "",
     });
 
-    // -------------------------
-    // POPULATE
-    // -------------------------
-
     const populatedInventory = await Inventory.findById(inventory._id).populate(
       "department",
-      "name departmentName code",
+      "name departmentName code"
     );
 
     res.status(201).json({
@@ -339,9 +318,10 @@ export const createInventory = async (req, res) => {
     console.error("Create inventory error:", error);
 
     if (error.code === 11000) {
+      const duplicateField = Object.keys(error.keyPattern || {})[0] || "field";
       return res.status(409).json({
         success: false,
-        message: "An inventory item with this item code already exists",
+        message: `An item with this duplicate ${duplicateField} already exists.`,
       });
     }
 

@@ -5,7 +5,9 @@ const inventorySchema = new mongoose.Schema(
     itemCode: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
+      index: true,
     },
 
     name: {
@@ -61,13 +63,30 @@ const inventorySchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+
+    // Optional references for items created from purchases
+    purchase: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Purchase",
+      default: null,
+    },
+
+    purchaseItemCode: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   {
     timestamps: true,
-  },
+  }
 );
 
-inventorySchema.index({ purchase: 1, purchaseItemCode: 1 }, { unique: true });
+// SPARSE index: Only enforces uniqueness when purchase & purchaseItemCode are present
+inventorySchema.index(
+  { purchase: 1, purchaseItemCode: 1 },
+  { unique: true, sparse: true }
+);
 
 const Inventory = mongoose.model("Inventory", inventorySchema);
 

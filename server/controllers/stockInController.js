@@ -1,6 +1,7 @@
 import StockIn from "../models/StockIn.js";
 import Supplier from "../models/Supplier.js";
 import Purchase from "../models/Purchase.js";
+import Inventory from "../models/Inventory.js"
 
 const stockInStatuses = [
   "Pending",
@@ -84,6 +85,33 @@ const calculateItem = (item) => {
     unitPrice,
     totalValue: Number(totalValue.toFixed(2)),
   };
+};
+
+// =========================
+const calculateInventoryStatus = (available, minimumStock = 0) => {
+  if (available <= 0) return "Out of Stock";
+  if (minimumStock > 0 && available <= minimumStock) return "Low Stock";
+  return "Available";
+};
+
+const applyStockInToInventory = async (itemData) => {
+  const { itemId, item, category, unit, quantity } = itemData;
+
+  // Find by itemCode (or _id fallback if itemId matches an ObjectId)
+  let inventoryItem = await Inventory.findOne({
+    $or: [{ itemCode: itemId }, { name: item }],
+  });
+
+  if (inventoryItem) {
+    // Increment existing stock
+    inventoryItem.quantity = (Number(inventoryItem.quantity) || 0) + Number(quantity);
+    inventoryItem.available = (Number(inventoryItem.available) || 0) + Number(quantity);
+    inventoryItem.status = calculateInventoryStatus(
+      inventoryItem.available,
+      inventoryItem.minimumStock
+    );
+    await inventoryItem.save();
+  }
 };
 
 // =========================
@@ -331,6 +359,11 @@ export const createStockIn = async (req, res) => {
       notes: notes?.trim() || "",
     });
 
+    // --- UPDATE INVENTORY IF RECEIVED ---
+    if (finalStatus === "Received") {
+      await applyStockInToInventory(calculatedItem);
+    }
+
     const populatedStockIn =
       await StockIn.findById(stockIn._id)
         .populate(
@@ -535,10 +568,7 @@ export const updateStockIn = async (req, res) => {
 // UPDATE STATUS
 // =========================
 
-export const updateStockInStatus = async (
-  req,
-  res
-) => {
+export const updateStockInStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -556,42 +586,35 @@ export const updateStockInStatus = async (
       });
     }
 
-    const stockIn =
-      await StockIn.findByIdAndUpdate(
-        req.params.id,
-        { status },
-        {
-          new: true,
-          runValidators: true,
-        }
-      )
-        .populate(
-          "supplier",
-          "supplierId name gstin contactPerson phone email address city state pincode status"
-        )
-        .populate(
-          "purchase",
-          "purchaseNo purchaseDate invoiceNo status"
-        );
+    const existingStockIn = await StockIn.findById(req.params.id);
 
-    if (!stockIn) {
+    if (!existingStockIn) {
       return res.status(404).json({
         success: false,
         message: "Stock In record not found",
       });
     }
 
+    const previousStatus = existingStockIn.status;
+    existingStockIn.status = status;
+    await existingStockIn.save();
+
+    // If status transitions from Pending/Cancelled to Received, increment inventory
+    if (status === "Received" && previousStatus !== "Received") {
+      await applyStockInToInventory(existingStockIn.item);
+    }
+
+    const populatedStockIn = await StockIn.findById(existingStockIn._id)
+      .populate("supplier", "supplierId name gstin contactPerson phone email address city state pincode status")
+      .populate("purchase", "purchaseNo purchaseDate invoiceNo status");
+
     res.status(200).json({
       success: true,
       message: `Stock In marked as ${status}`,
-      stockIn,
+      stockIn: populatedStockIn,
     });
   } catch (error) {
-    console.error(
-      "Update stock in status error:",
-      error
-    );
-
+    console.error("Update stock in status error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
