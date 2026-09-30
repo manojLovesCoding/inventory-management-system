@@ -64,28 +64,48 @@ const inventorySchema = new mongoose.Schema(
       default: "",
     },
 
-    // Optional references for items created from purchases
+    // Optional references for inventory items
+    // created from a purchase.
+    //
+    // IMPORTANT:
+    // No default: null here.
+    // Manual inventory items will not contain these fields.
     purchase: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Purchase",
-      default: null,
     },
 
     purchaseItemCode: {
       type: String,
       trim: true,
-      default: null,
     },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-// SPARSE index: Only enforces uniqueness when purchase & purchaseItemCode are present
+// ======================================================
+// PURCHASE INVENTORY UNIQUENESS
+// ======================================================
+//
+// Prevents the same purchase item from being added
+// to inventory more than once.
+//
+// Because this is sparse, manually-created inventory
+// items without purchase fields are not included.
+//
+// ======================================================
+
 inventorySchema.index(
-  { purchase: 1, purchaseItemCode: 1 },
-  { unique: true, sparse: true }
+  {
+    purchase: 1,
+    purchaseItemCode: 1,
+  },
+  {
+    unique: true,
+    sparse: true,
+  },
 );
 
 const Inventory = mongoose.model("Inventory", inventorySchema);
