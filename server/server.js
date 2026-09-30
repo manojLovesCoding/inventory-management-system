@@ -15,6 +15,7 @@ import userRouter from "./routes/userRoutes.js";
 import stockInRouter from "./routes/stockInRoutes.js";
 import requestRouter from "./routes/itemRequestRoutes.js";
 import stockOutRouter from "./routes/stockOutRoutes.js";
+import returnRouter from "./routes/returnRoutes.js";
 
 
 const app = express();
@@ -45,6 +46,7 @@ app.use("/api/users", userRouter);
 app.use("/api/stock-in", stockInRouter);
 app.use("/api/requests", requestRouter);
 app.use("/api/stock-out", stockOutRouter);
+app.use("/api/returns", returnRouter);
 
 
 // Database
