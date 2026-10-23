@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import ItemRequest from "../models/ItemRequest.js";
 import Inventory from "../models/Inventory.js";
 import Department from "../models/Department.js";
+import StockOut from "../models/StockOut.js";
 
 const generateRequestNumber = async () => {
   const year = new Date().getFullYear();
@@ -22,17 +23,30 @@ const generateRequestNumber = async () => {
   return `REQ-${year}-${String(nextNumber).padStart(3, "0")}`;
 };
 
+// Helper to auto-generate stockOutNo if your schema requires it
+const generateStockOutNumber = async (session) => {
+  const year = new Date().getFullYear();
+  const lastRecord = await StockOut.findOne({
+    stockOutNo: new RegExp(`^SO-${year}-`),
+  })
+    .sort({ createdAt: -1 })
+    .select("stockOutNo")
+    .session(session);
+
+  let nextNumber = 1;
+  if (lastRecord?.stockOutNo) {
+    const parts = lastRecord.stockOutNo.split("-");
+    nextNumber = Number(parts[2]) + 1;
+  }
+  return `SO-${year}-${String(nextNumber).padStart(4, "0")}`;
+};
+
 /**
  * GET /api/item-requests
  */
 export const getItemRequests = async (req, res) => {
   try {
-    const {
-      search = "",
-      status,
-      priority,
-      department,
-    } = req.query;
+    const { search = "", status, priority, department } = req.query;
 
     const filter = {};
 
@@ -280,17 +294,14 @@ export const createItemRequest = async (req, res) => {
     }
 
     const available =
-      item.available !== undefined &&
-      item.available !== null
+      item.available !== undefined && item.available !== null
         ? Number(item.available)
         : Number(item.quantity) || 0;
 
     if (Number(quantity) > available) {
       return res.status(400).json({
         success: false,
-        message: `Only ${available} ${
-          item.unit || "Nos"
-        } available`,
+        message: `Only ${available} ${item.unit || "Nos"} available`,
       });
     }
 
@@ -309,10 +320,9 @@ export const createItemRequest = async (req, res) => {
       status: "Pending",
     });
 
-    const populatedRequest =
-      await ItemRequest.findById(request._id)
-        .populate("item")
-        .populate("department", "name code status");
+    const populatedRequest = await ItemRequest.findById(request._id)
+      .populate("item")
+      .populate("department", "name code status");
 
     res.status(201).json({
       success: true,
@@ -361,8 +371,7 @@ export const approveItemRequest = async (req, res) => {
     }
 
     const available =
-      item.available !== undefined &&
-      item.available !== null
+      item.available !== undefined && item.available !== null
         ? Number(item.available)
         : Number(item.quantity) || 0;
 
@@ -419,8 +428,7 @@ export const rejectItemRequest = async (req, res) => {
 
     request.status = "Rejected";
     request.reviewedAt = new Date();
-    request.rejectionReason =
-      req.body?.reason?.trim() || "";
+    request.rejectionReason = req.body?.reason?.trim() || "";
 
     await request.save();
 
@@ -449,13 +457,10 @@ export const issueItemRequest = async (req, res) => {
   try {
     session.startTransaction();
 
-    const request = await ItemRequest.findById(
-      req.params.id,
-    ).session(session);
+    const request = await ItemRequest.findById(req.params.id).session(session);
 
     if (!request) {
       await session.abortTransaction();
-
       return res.status(404).json({
         success: false,
         message: "Item request not found",
@@ -464,21 +469,16 @@ export const issueItemRequest = async (req, res) => {
 
     if (request.status !== "Approved") {
       await session.abortTransaction();
-
       return res.status(400).json({
         success: false,
-        message:
-          "Only approved requests can be issued",
+        message: "Only approved requests can be issued",
       });
     }
 
-    const item = await Inventory.findById(
-      request.item,
-    ).session(session);
+    const item = await Inventory.findById(request.item).session(session);
 
     if (!item) {
       await session.abortTransaction();
-
       return res.status(404).json({
         success: false,
         message: "Inventory item not found",
@@ -486,51 +486,26 @@ export const issueItemRequest = async (req, res) => {
     }
 
     const available =
-      item.available !== undefined &&
-      item.available !== null
+      item.available !== undefined && item.available !== null
         ? Number(item.available)
         : Number(item.quantity) || 0;
 
     if (request.quantity > available) {
       await session.abortTransaction();
-
       return res.status(400).json({
         success: false,
-        message: `Insufficient stock. Only ${available} ${
-          item.unit || "Nos"
-        } available`,
+        message: `Insufficient stock. Only ${available} ${item.unit || "Nos"} available`,
       });
     }
 
-    /*
-     * IMPORTANT
-     *
-     * Your inventory model appears to use:
-     *
-     * quantity
-     * available
-     *
-     * We decrease available when the item is issued.
-     *
-     * If your stock-in logic uses another field,
-     * adjust this section accordingly.
-     */
-
-    if (
-      item.available !== undefined &&
-      item.available !== null
-    ) {
-      item.available =
-        Number(item.available) - request.quantity;
+    // 1. Deduct Stock
+    if (item.available !== undefined && item.available !== null) {
+      item.available = Number(item.available) - request.quantity;
     } else {
-      item.quantity =
-        Number(item.quantity || 0) -
-        request.quantity;
+      item.quantity = Number(item.quantity || 0) - request.quantity;
     }
 
-    /*
-     * Update inventory status if your model has status.
-     */
+    // 2. Update Inventory Stock Status
     if ("status" in item) {
       const currentAvailable =
         item.available !== undefined
@@ -551,26 +526,46 @@ export const issueItemRequest = async (req, res) => {
 
     await item.save({ session });
 
+    // 3. Mark Request as Issued
     request.status = "Issued";
     request.issuedAt = new Date();
-
     await request.save({ session });
+
+    // 4. AUTOMATICALLY CREATE STOCK-OUT ENTRY
+    const stockOutNo = await generateStockOutNumber(session);
+
+    const [createdStockOut] = await StockOut.create(
+      [
+        {
+          stockOutNo,
+          inventory: item._id,
+          quantity: request.quantity,
+          department: request.department,
+          issuedTo: request.requestedBy,
+          issuedDate: new Date(),
+          request: request._id,
+          notes: request.purpose
+            ? `Issued against request ${request.requestNumber}: ${request.purpose}`
+            : `Issued against request ${request.requestNumber}`,
+        },
+      ],
+      { session },
+    );
 
     await session.commitTransaction();
 
-    const updatedRequest =
-      await ItemRequest.findById(request._id)
-        .populate("item")
-        .populate("department", "name code");
+    const updatedRequest = await ItemRequest.findById(request._id)
+      .populate("item")
+      .populate("department", "name code");
 
     res.json({
       success: true,
-      message: "Item issued successfully",
+      message: "Item issued and recorded in Stock Out successfully",
       data: updatedRequest,
+      stockOut: createdStockOut,
     });
   } catch (error) {
     await session.abortTransaction();
-
     console.error("Issue request error:", error);
 
     res.status(500).json({
