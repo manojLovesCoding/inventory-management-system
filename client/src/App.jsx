@@ -27,6 +27,7 @@ import Settings from "./pages/Settings";
 
 import { useAuth } from "./context/AuthContext";
 import Loading from "./components/Loading";
+import DepartmentReturns from "./pages/Departmentreturns";
 
 const ProtectedRoutes = () => {
   const { user, loading } = useAuth();
@@ -138,6 +139,7 @@ const App = () => {
         <Route element={<ProtectedRoutes />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/requests" element={<Requests />} />
+          <Route path="/requests/department" element={<DepartmentReturns />} />
 
           {/* Admin Only Routes */}
           <Route element={<AdminRoute />}>
