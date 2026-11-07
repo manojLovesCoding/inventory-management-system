@@ -13,6 +13,72 @@ import {
 import toast from "react-hot-toast";
 import api from "../api/axios";
 
+// =========================
+// HELPERS
+// =========================
+
+const getToday = () => new Date().toISOString().split("T")[0];
+
+const getEmptyForm = () => ({
+  purchase: "",
+  referenceNo: "",
+  receivedDate: getToday(),
+  supplier: "",
+  supplierName: "",
+  itemId: "",
+  item: "",
+  category: "",
+  unit: "units",
+  quantity: "",
+  unitPrice: "",
+  receivedBy: "",
+  notes: "",
+});
+
+const getSupplierName = (supplier) => {
+  if (!supplier) return "-";
+
+  if (typeof supplier === "object") {
+    return supplier.name || supplier.supplierId || "-";
+  }
+
+  return supplier;
+};
+
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+};
+
+const formatDate = (date) => {
+  if (!date) return "-";
+
+  return new Date(date).toLocaleDateString("en-IN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+};
+
+const getStatusStyle = (status) => {
+  switch (status) {
+    case "Received":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+
+    case "Pending":
+      return "bg-amber-50 text-amber-700 border-amber-200";
+
+    case "Cancelled":
+      return "bg-rose-50 text-rose-700 border-rose-200";
+
+    default:
+      return "bg-slate-50 text-slate-600 border-slate-200";
+  }
+};
+
 const StockIn = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -22,19 +88,12 @@ const StockIn = () => {
   const [stockInRecords, setStockInRecords] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [formData, setFormData] = useState({
-    referenceNo: "",
-    receivedDate: "",
-    supplier: "",
-    itemId: "",
-    item: "",
-    category: "",
-    unit: "units",
-    quantity: "",
-    unitPrice: "",
-    receivedBy: "",
-    notes: "",
-  });
+  const [formData, setFormData] = useState(getEmptyForm());
+
+  const [purchases, setPurchases] = useState([]);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+
+  const [isSaving, setIsSaving] = useState(false);
 
   // =========================
   // FETCH STOCK IN RECORDS
@@ -57,16 +116,40 @@ const StockIn = () => {
       console.error("Fetch stock in error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to load stock-in records",
+        error.response?.data?.message || "Failed to load stock-in records",
       );
     } finally {
       setLoading(false);
     }
   };
 
+  // =========================
+  // FETCH PURCHASE ORDERS
+  // =========================
+
+  const fetchPurchases = async () => {
+    try {
+      setPurchasesLoading(true);
+
+      const response = await api.get("/purchases");
+
+      const data = response.data?.purchases || [];
+
+      setPurchases(data.filter((purchase) => purchase.status !== "Cancelled"));
+    } catch (error) {
+      console.error("Fetch purchases error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to load purchase orders",
+      );
+    } finally {
+      setPurchasesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchStockIns();
+    fetchPurchases();
   }, []);
 
   // =========================
@@ -83,23 +166,130 @@ const StockIn = () => {
   };
 
   // =========================
-  // RESET FORM
+  // PO AUTO-FILL LOGIC
   // =========================
 
-  const resetForm = () => {
-    setFormData({
-      referenceNo: "",
-      receivedDate: "",
-      supplier: "",
-      itemId: "",
-      item: "",
-      category: "",
-      unit: "units",
-      quantity: "",
-      unitPrice: "",
-      receivedBy: "",
-      notes: "",
+  // Quantity already received per purchase + item (from existing Stock In records)
+  const receivedQtyMap = useMemo(() => {
+    const map = {};
+
+    stockInRecords.forEach((record) => {
+      if (record.status !== "Received") return;
+
+      const purchaseId =
+        typeof record.purchase === "object"
+          ? record.purchase?._id
+          : record.purchase;
+
+      if (!purchaseId) return;
+
+      const key = `${purchaseId}::${record.item?.itemId}`;
+
+      map[key] = (map[key] || 0) + Number(record.item?.quantity || 0);
     });
+
+    return map;
+  }, [stockInRecords]);
+
+  const getRemainingQty = (purchase, purchaseItem) => {
+    if (!purchase || !purchaseItem) return 0;
+
+    const received =
+      receivedQtyMap[`${purchase._id}::${purchaseItem.itemId}`] || 0;
+
+    return Math.max(0, Number(purchaseItem.quantity) - received);
+  };
+
+  const selectedPurchase = purchases.find(
+    (purchase) => purchase._id === formData.purchase,
+  );
+
+  const selectedPurchaseItem = selectedPurchase?.items?.find(
+    (purchaseItem) => purchaseItem.itemId === formData.itemId,
+  );
+
+  const remainingQty = getRemainingQty(selectedPurchase, selectedPurchaseItem);
+
+  const hasPendingItems = selectedPurchase?.items?.some(
+    (purchaseItem) => getRemainingQty(selectedPurchase, purchaseItem) > 0,
+  );
+
+  const getItemFields = (purchase, purchaseItem) => {
+    if (!purchaseItem) {
+      return {
+        itemId: "",
+        item: "",
+        category: "",
+        unit: "units",
+        quantity: "",
+        unitPrice: "",
+      };
+    }
+
+    return {
+      itemId: purchaseItem.itemId,
+      item: purchaseItem.name,
+      category: purchaseItem.category,
+      unit: purchaseItem.unit || "units",
+      quantity: String(getRemainingQty(purchase, purchaseItem)),
+      unitPrice: String(purchaseItem.unitPrice),
+    };
+  };
+
+  // When a PO is selected -> fetch supplier + first pending item
+  const handlePurchaseSelect = (event) => {
+    const purchase = purchases.find((p) => p._id === event.target.value);
+
+    if (!purchase) {
+      setFormData((prev) => ({
+        ...getEmptyForm(),
+        receivedBy: prev.receivedBy,
+        notes: prev.notes,
+      }));
+      return;
+    }
+
+    const firstPendingItem = (purchase.items || []).find(
+      (purchaseItem) => getRemainingQty(purchase, purchaseItem) > 0,
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      purchase: purchase._id,
+      referenceNo: purchase.purchaseNo,
+      supplier: purchase.supplier?._id || purchase.supplier || "",
+      supplierName: getSupplierName(purchase.supplier),
+      ...getItemFields(purchase, firstPendingItem),
+    }));
+  };
+
+  // When a different item of the same PO is chosen
+  const handlePurchaseItemSelect = (event) => {
+    const purchaseItem = selectedPurchase?.items?.find(
+      (i) => i.itemId === event.target.value,
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      ...getItemFields(selectedPurchase, purchaseItem),
+    }));
+  };
+
+  // =========================
+  // MODAL OPEN / CLOSE / RESET
+  // =========================
+
+  const resetForm = () => setFormData(getEmptyForm());
+
+  const openAddModal = () => {
+    resetForm();
+    fetchPurchases();
+    setShowAddModal(true);
+  };
+
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    resetForm();
   };
 
   // =========================
@@ -109,53 +299,72 @@ const StockIn = () => {
   const handleSaveStock = async (event) => {
     event.preventDefault();
 
+    if (!selectedPurchase) {
+      toast.error("Please select a Reference / PO number");
+      return;
+    }
+
+    if (!selectedPurchaseItem) {
+      toast.error("Please select a purchase item");
+      return;
+    }
+
+    if (remainingQty <= 0) {
+      toast.error("This item has already been fully received");
+      return;
+    }
+
+    if (Number(formData.quantity) > remainingQty) {
+      toast.error(
+        `Quantity cannot exceed the pending quantity (${remainingQty})`,
+      );
+      return;
+    }
+
     try {
+      setIsSaving(true);
+
       const payload = {
-        referenceNo: formData.referenceNo.trim(),
+        referenceNo: formData.referenceNo,
+        purchase: formData.purchase,
+        supplier: formData.supplier,
         receivedDate: formData.receivedDate,
-        supplier: formData.supplier.trim(),
         receivedBy: formData.receivedBy.trim(),
         status: "Received",
         item: {
-          itemId: formData.itemId.trim(),
-          item: formData.item.trim(),
-          category: formData.category.trim(),
-          unit: formData.unit.trim() || "units",
+          itemId: formData.itemId,
+          item: formData.item,
+          category: formData.category,
+          unit: formData.unit || "units",
           quantity: Number(formData.quantity),
           unitPrice: Number(formData.unitPrice),
         },
-
         notes: formData.notes.trim(),
       };
 
-      const response = await api.post(
-        "/stock-in",
-        payload,
-      );
+      const response = await api.post("/stock-in", payload);
 
       if (response.data?.success) {
         toast.success(
-          response.data.message ||
-            "Stock In record created successfully",
+          response.data.message || "Stock In record created successfully",
         );
 
-        setShowAddModal(false);
-        resetForm();
+        closeAddModal();
 
         await fetchStockIns();
       } else {
         toast.error(
-          response.data?.message ||
-            "Failed to create Stock In record",
+          response.data?.message || "Failed to create Stock In record",
         );
       }
     } catch (error) {
       console.error("Create stock in error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to create Stock In record",
+        error.response?.data?.message || "Failed to create Stock In record",
       );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -177,20 +386,15 @@ const StockIn = () => {
       const category = record.item?.category || "";
 
       const matchesSearch =
-        record.stockInNo
-          ?.toLowerCase()
-          .includes(query) ||
-        record.referenceNo
-          ?.toLowerCase()
-          .includes(query) ||
+        record.stockInNo?.toLowerCase().includes(query) ||
+        record.referenceNo?.toLowerCase().includes(query) ||
         itemName.toLowerCase().includes(query) ||
         itemId.toLowerCase().includes(query) ||
         supplierName.toLowerCase().includes(query) ||
         category.toLowerCase().includes(query);
 
       const matchesStatus =
-        statusFilter === "All" ||
-        record.status === statusFilter;
+        statusFilter === "All" || record.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
@@ -212,71 +416,7 @@ const StockIn = () => {
 
   const totalValue = stockInRecords
     .filter((record) => record.status === "Received")
-    .reduce(
-      (sum, record) =>
-        sum + Number(record.item?.totalValue || 0),
-      0,
-    );
-
-  // =========================
-  // FORMAT CURRENCY
-  // =========================
-
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(Number(value) || 0);
-  };
-
-  // =========================
-  // STATUS STYLE
-  // =========================
-
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case "Received":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-
-      case "Pending":
-        return "bg-amber-50 text-amber-700 border-amber-200";
-
-      case "Cancelled":
-        return "bg-rose-50 text-rose-700 border-rose-200";
-
-      default:
-        return "bg-slate-50 text-slate-600 border-slate-200";
-    }
-  };
-
-  // =========================
-  // SUPPLIER NAME
-  // =========================
-
-  const getSupplierName = (supplier) => {
-    if (!supplier) return "-";
-
-    if (typeof supplier === "object") {
-      return supplier.name || supplier.supplierId || "-";
-    }
-
-    return supplier;
-  };
-
-  // =========================
-  // DATE FORMAT
-  // =========================
-
-  const formatDate = (date) => {
-    if (!date) return "-";
-
-    return new Date(date).toLocaleDateString("en-IN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  };
+    .reduce((sum, record) => sum + Number(record.item?.totalValue || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -301,7 +441,7 @@ const StockIn = () => {
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={openAddModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
         >
           <Plus className="w-4 h-4" />
@@ -356,9 +496,7 @@ const StockIn = () => {
               <input
                 type="text"
                 value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
+                onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search stock in records..."
                 className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
@@ -366,9 +504,7 @@ const StockIn = () => {
 
             <select
               value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value)
-              }
+              onChange={(event) => setStatusFilter(event.target.value)}
               className="w-full xl:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             >
               <option value="All">All Status</option>
@@ -490,16 +626,11 @@ const StockIn = () => {
                       {/* VALUE */}
                       <td className="px-5 py-4">
                         <p className="text-sm font-medium text-slate-800">
-                          {formatCurrency(
-                            record.item?.totalValue,
-                          )}
+                          {formatCurrency(record.item?.totalValue)}
                         </p>
 
                         <p className="text-xs text-slate-400 mt-1">
-                          {formatCurrency(
-                            record.item?.unitPrice,
-                          )}{" "}
-                          / unit
+                          {formatCurrency(record.item?.unitPrice)} / unit
                         </p>
                       </td>
 
@@ -508,9 +639,7 @@ const StockIn = () => {
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <CalendarDays className="w-4 h-4 text-slate-400" />
 
-                          {formatDate(
-                            record.receivedDate,
-                          )}
+                          {formatDate(record.receivedDate)}
                         </div>
                       </td>
 
@@ -529,9 +658,7 @@ const StockIn = () => {
                       <td className="px-5 py-4">
                         <div className="flex justify-end">
                           <button
-                            onClick={() =>
-                              setSelectedStock(record)
-                            }
+                            onClick={() => setSelectedStock(record)}
                             className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
                             title="View details"
                           >
@@ -544,18 +671,13 @@ const StockIn = () => {
                 </tbody>
               </table>
 
-              {filteredRecords.length === 0 && (
-                <EmptyState />
-              )}
+              {filteredRecords.length === 0 && <EmptyState />}
             </div>
 
             {/* MOBILE */}
             <div className="lg:hidden divide-y divide-slate-100">
               {filteredRecords.map((record) => (
-                <div
-                  key={record._id}
-                  className="p-4"
-                >
+                <div key={record._id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
@@ -583,10 +705,7 @@ const StockIn = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mt-4">
-                    <Info
-                      label="Reference"
-                      value={record.referenceNo}
-                    />
+                    <Info label="Reference" value={record.referenceNo} />
 
                     <Info
                       label="Quantity"
@@ -597,36 +716,25 @@ const StockIn = () => {
 
                     <Info
                       label="Supplier"
-                      value={getSupplierName(
-                        record.supplier,
-                      )}
+                      value={getSupplierName(record.supplier)}
                     />
 
                     <Info
                       label="Value"
-                      value={formatCurrency(
-                        record.item?.totalValue,
-                      )}
+                      value={formatCurrency(record.item?.totalValue)}
                     />
 
                     <Info
                       label="Received Date"
-                      value={formatDate(
-                        record.receivedDate,
-                      )}
+                      value={formatDate(record.receivedDate)}
                     />
 
-                    <Info
-                      label="Category"
-                      value={record.item?.category}
-                    />
+                    <Info label="Category" value={record.item?.category} />
                   </div>
 
                   <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
                     <button
-                      onClick={() =>
-                        setSelectedStock(record)
-                      }
+                      onClick={() => setSelectedStock(record)}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
                     >
                       <Eye className="w-4 h-4" />
@@ -636,9 +744,7 @@ const StockIn = () => {
                 </div>
               ))}
 
-              {filteredRecords.length === 0 && (
-                <EmptyState />
-              )}
+              {filteredRecords.length === 0 && <EmptyState />}
             </div>
           </>
         )}
@@ -695,9 +801,7 @@ const StockIn = () => {
               {/* STATUS */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-400">
-                    Status
-                  </p>
+                  <p className="text-xs text-slate-400">Status</p>
 
                   <span
                     className={`inline-flex mt-1 px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
@@ -709,9 +813,7 @@ const StockIn = () => {
                 </div>
 
                 <div className="text-right">
-                  <p className="text-xs text-slate-400">
-                    Reference
-                  </p>
+                  <p className="text-xs text-slate-400">Reference</p>
 
                   <p className="text-sm font-medium text-slate-800 mt-1">
                     {selectedStock.referenceNo}
@@ -723,9 +825,7 @@ const StockIn = () => {
               <div className="grid grid-cols-2 gap-4">
                 <Detail
                   label="Supplier"
-                  value={getSupplierName(
-                    selectedStock.supplier,
-                  )}
+                  value={getSupplierName(selectedStock.supplier)}
                 />
 
                 <Detail
@@ -737,42 +837,28 @@ const StockIn = () => {
 
                 <Detail
                   label="Unit Price"
-                  value={formatCurrency(
-                    selectedStock.item?.unitPrice,
-                  )}
+                  value={formatCurrency(selectedStock.item?.unitPrice)}
                 />
 
                 <Detail
                   label="Total Value"
-                  value={formatCurrency(
-                    selectedStock.item?.totalValue,
-                  )}
+                  value={formatCurrency(selectedStock.item?.totalValue)}
                 />
 
                 <Detail
                   label="Received Date"
-                  value={formatDate(
-                    selectedStock.receivedDate,
-                  )}
+                  value={formatDate(selectedStock.receivedDate)}
                 />
 
-                <Detail
-                  label="Received By"
-                  value={selectedStock.receivedBy}
-                />
+                <Detail label="Received By" value={selectedStock.receivedBy} />
               </div>
 
               {/* ITEM ID */}
-              <Detail
-                label="Item ID"
-                value={selectedStock.item?.itemId}
-              />
+              <Detail label="Item ID" value={selectedStock.item?.itemId} />
 
               {/* NOTES */}
               <div>
-                <p className="text-xs text-slate-400">
-                  Notes
-                </p>
+                <p className="text-xs text-slate-400">Notes</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
                   {selectedStock.notes || "No notes added."}
@@ -797,7 +883,7 @@ const StockIn = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            onClick={() => setShowAddModal(false)}
+            onClick={closeAddModal}
           />
 
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
@@ -809,15 +895,14 @@ const StockIn = () => {
                 </h2>
 
                 <p className="text-xs text-slate-500 mt-1">
-                  Record newly received inventory.
+                  Select a PO number and the details will be filled in
+                  automatically.
                 </p>
               </div>
 
               <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  resetForm();
-                }}
+                type="button"
+                onClick={closeAddModal}
                 className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
@@ -828,14 +913,37 @@ const StockIn = () => {
             <form onSubmit={handleSaveStock}>
               <div className="p-5 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField
-                    label="Reference / PO Number"
-                    name="referenceNo"
-                    value={formData.referenceNo}
-                    onChange={handleFormChange}
-                    placeholder="PO-2026-045"
-                    required
-                  />
+                  {/* REFERENCE / PO NUMBER (dropdown) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Reference / PO Number
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
+
+                    <select
+                      value={formData.purchase}
+                      onChange={handlePurchaseSelect}
+                      disabled={purchasesLoading}
+                      required
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                    >
+                      <option value="">
+                        {purchasesLoading
+                          ? "Loading purchase orders..."
+                          : purchases.length === 0
+                            ? "No purchase orders found"
+                            : "Select PO number"}
+                      </option>
+
+                      {purchases.map((purchase) => (
+                        <option key={purchase._id} value={purchase._id}>
+                          {purchase.purchaseNo} —{" "}
+                          {getSupplierName(purchase.supplier)} (
+                          {purchase.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <FormField
                     label="Received Date"
@@ -847,49 +955,98 @@ const StockIn = () => {
                   />
 
                   <FormField
-                    label="Supplier ID"
-                    name="supplier"
-                    value={formData.supplier}
-                    onChange={handleFormChange}
-                    placeholder="Enter supplier ObjectId"
-                    required
+                    label="Supplier"
+                    name="supplierName"
+                    value={formData.supplierName}
+                    placeholder="Auto-filled from PO"
+                    readOnly
                   />
+
+                  {/* PO ITEM (dropdown) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      PO Item
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
+
+                    <select
+                      value={formData.itemId}
+                      onChange={handlePurchaseItemSelect}
+                      disabled={!selectedPurchase}
+                      required
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                    >
+                      <option value="">
+                        {selectedPurchase ? "Select item" : "Select a PO first"}
+                      </option>
+
+                      {(selectedPurchase?.items || []).map((purchaseItem) => {
+                        const pending = getRemainingQty(
+                          selectedPurchase,
+                          purchaseItem,
+                        );
+
+                        return (
+                          <option
+                            key={purchaseItem.itemId}
+                            value={purchaseItem.itemId}
+                            disabled={pending <= 0}
+                          >
+                            {purchaseItem.name} —{" "}
+                            {pending > 0
+                              ? `${pending} of ${purchaseItem.quantity} pending`
+                              : "fully received"}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
 
                   <FormField
                     label="Item ID"
                     name="itemId"
                     value={formData.itemId}
-                    onChange={handleFormChange}
-                    placeholder="ITEM-001"
-                    required
+                    placeholder="Auto-filled"
+                    readOnly
                   />
 
                   <FormField
                     label="Item"
                     name="item"
                     value={formData.item}
-                    onChange={handleFormChange}
-                    placeholder="A4 Copier Paper"
-                    required
+                    placeholder="Auto-filled"
+                    readOnly
                   />
 
                   <FormField
                     label="Category"
                     name="category"
                     value={formData.category}
-                    onChange={handleFormChange}
-                    placeholder="Stationery"
-                    required
+                    placeholder="Auto-filled"
+                    readOnly
                   />
 
                   <FormField
-                    label="Quantity"
+                    label="Unit"
+                    name="unit"
+                    value={formData.unit}
+                    placeholder="Auto-filled"
+                    readOnly
+                  />
+
+                  <FormField
+                    label={
+                      remainingQty > 0
+                        ? `Quantity Received (max ${remainingQty})`
+                        : "Quantity Received"
+                    }
                     name="quantity"
                     type="number"
                     value={formData.quantity}
                     onChange={handleFormChange}
                     placeholder="0"
                     min="0.01"
+                    max={remainingQty || undefined}
                     step="0.01"
                     required
                   />
@@ -899,19 +1056,8 @@ const StockIn = () => {
                     name="unitPrice"
                     type="number"
                     value={formData.unitPrice}
-                    onChange={handleFormChange}
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-
-                  <FormField
-                    label="Unit"
-                    name="unit"
-                    value={formData.unit}
-                    onChange={handleFormChange}
-                    placeholder="units"
+                    placeholder="Auto-filled"
+                    readOnly
                   />
 
                   <FormField
@@ -923,6 +1069,12 @@ const StockIn = () => {
                     required
                   />
                 </div>
+
+                {selectedPurchase && !hasPendingItems && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                    All items in this purchase order have already been received.
+                  </div>
+                )}
 
                 {/* NOTES */}
                 <div>
@@ -942,8 +1094,8 @@ const StockIn = () => {
 
                 {/* INFO */}
                 <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-100 text-xs text-indigo-700">
-                  Once received, the quantity will be added to the
-                  item's available stock.
+                  Once received, the quantity will be added to the item's
+                  available stock.
                 </div>
               </div>
 
@@ -951,10 +1103,7 @@ const StockIn = () => {
               <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowAddModal(false);
-                    resetForm();
-                  }}
+                  onClick={closeAddModal}
                   className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
                 >
                   Cancel
@@ -962,10 +1111,13 @@ const StockIn = () => {
 
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
+                  disabled={
+                    isSaving || !selectedPurchaseItem || remainingQty <= 0
+                  }
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  Save Stock In
+                  {isSaving ? "Saving..." : "Save Stock In"}
                 </button>
               </div>
             </form>
@@ -994,9 +1146,7 @@ const SummaryCard = ({
         <div>
           <p className="text-sm text-slate-500">{title}</p>
 
-          <h2
-            className={`${valueClass} font-semibold text-slate-900 mt-2`}
-          >
+          <h2 className={`${valueClass} font-semibold text-slate-900 mt-2`}>
             {value}
           </h2>
         </div>
@@ -1018,13 +1168,9 @@ const SummaryCard = ({
 const Info = ({ label, value }) => {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-xs text-slate-700 mt-1 truncate">
-        {value || "-"}
-      </p>
+      <p className="text-xs text-slate-700 mt-1 truncate">{value || "-"}</p>
     </div>
   );
 };
@@ -1036,13 +1182,9 @@ const Info = ({ label, value }) => {
 const Detail = ({ label, value }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-sm font-medium text-slate-800 mt-1">
-        {value || "-"}
-      </p>
+      <p className="text-sm font-medium text-slate-800 mt-1">{value || "-"}</p>
     </div>
   );
 };
@@ -1060,18 +1202,16 @@ const FormField = ({
   value,
   onChange,
   min,
+  max,
   step,
+  readOnly = false,
 }) => {
   return (
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
 
-        {required && (
-          <span className="text-rose-500 ml-1">
-            *
-          </span>
-        )}
+        {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
 
       <input
@@ -1081,9 +1221,13 @@ const FormField = ({
         onChange={onChange}
         placeholder={placeholder}
         required={required}
+        readOnly={readOnly}
         min={min}
+        max={max}
         step={step}
-        className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+        className={`w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 ${
+          readOnly ? "bg-slate-50 text-slate-600 cursor-not-allowed" : ""
+        }`}
       />
     </div>
   );
