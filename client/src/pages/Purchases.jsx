@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import  {
+import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -80,6 +80,17 @@ const getDepartmentName = (purchase) => {
   );
 };
 
+// Inventory category can be a plain string or a populated object
+const getInventoryCategory = (inventoryItem) => {
+  if (!inventoryItem?.category) return "";
+
+  if (typeof inventoryItem.category === "object") {
+    return inventoryItem.category.name || "";
+  }
+
+  return inventoryItem.category;
+};
+
 const getStatusClasses = (status) => {
   switch (status) {
     case "Received":
@@ -135,6 +146,13 @@ const Purchases = () => {
   const [items, setItems] = useState([]);
 
   // =====================================================
+  // INVENTORY (for Item ID dropdown)
+  // =====================================================
+
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(true);
+
+  // =====================================================
   // ITEM MODAL
   // =====================================================
 
@@ -182,6 +200,32 @@ const Purchases = () => {
     } finally {
       setPurchaseLoading(false);
       setPurchaseRefreshing(false);
+    }
+  };
+
+  // =====================================================
+  // LOAD INVENTORY ITEMS
+  // =====================================================
+
+  const fetchInventory = async () => {
+    try {
+      setInventoryLoading(true);
+
+      const response = await api.get("/inventory");
+
+      const inventoryData =
+        response?.data?.inventory ||
+        response?.data?.items ||
+        response?.data?.data ||
+        [];
+
+      setInventoryItems(Array.isArray(inventoryData) ? inventoryData : []);
+    } catch (error) {
+      console.error("Fetch inventory error:", error);
+
+      toast.error(getErrorMessage(error, "Failed to load inventory items"));
+    } finally {
+      setInventoryLoading(false);
     }
   };
 
@@ -240,11 +284,12 @@ const Purchases = () => {
   }, []);
 
   // =====================================================
-  // LOAD PURCHASES ON PAGE LOAD
+  // LOAD PURCHASES + INVENTORY ON PAGE LOAD
   // =====================================================
 
   useEffect(() => {
     fetchPurchases();
+    fetchInventory();
   }, []);
 
   // =====================================================
@@ -337,6 +382,9 @@ const Purchases = () => {
     setTaxRate("18");
     setDiscount("0");
 
+    // Refresh so newly created inventory items appear in the dropdown
+    fetchInventory();
+
     setShowItemModal(true);
   };
 
@@ -355,6 +403,31 @@ const Purchases = () => {
   };
 
   // =====================================================
+  // SELECT INVENTORY ITEM -> AUTO-FILL NAME, CATEGORY, UNIT
+  // =====================================================
+
+  const handleInventoryItemSelect = (e) => {
+    const selectedCode = e.target.value;
+
+    const inventoryItem = inventoryItems.find(
+      (inventory) => inventory.itemCode === selectedCode,
+    );
+
+    if (!inventoryItem) {
+      setItemId("");
+      setItemName("");
+      setItemCategory("");
+      setItemUnit("");
+      return;
+    }
+
+    setItemId(inventoryItem.itemCode);
+    setItemName(inventoryItem.name || "");
+    setItemCategory(getInventoryCategory(inventoryItem));
+    setItemUnit(inventoryItem.unit || "");
+  };
+
+  // =====================================================
   // ADD ITEM
   // =====================================================
 
@@ -362,7 +435,7 @@ const Purchases = () => {
     e.preventDefault();
 
     if (!itemId.trim()) {
-      toast.error("Please enter item ID");
+      toast.error("Please select an item ID");
       return;
     }
 
@@ -1294,7 +1367,7 @@ const Purchases = () => {
                 </h2>
 
                 <p className="text-xs text-slate-400 mt-1">
-                  Manually enter the items being purchased.
+                  Select inventory items and enter quantity and price.
                 </p>
               </div>
 
@@ -1319,7 +1392,7 @@ const Purchases = () => {
                 </h3>
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Add products manually to this purchase order.
+                  Add products to this purchase order.
                 </p>
 
                 <button
@@ -1746,7 +1819,7 @@ const Purchases = () => {
                 </h2>
 
                 <p className="text-xs text-slate-400 mt-1">
-                  Manually enter item details, quantity, price and tax.
+                  Select an item ID and its details are filled in automatically.
                 </p>
               </div>
 
@@ -1761,7 +1834,7 @@ const Purchases = () => {
 
             <form onSubmit={addItem}>
               <div className="p-6 space-y-5">
-                {/* ITEM ID */}
+                {/* ITEM ID (inventory dropdown) */}
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1769,14 +1842,40 @@ const Purchases = () => {
                     <span className="text-rose-500 ml-1">*</span>
                   </label>
 
-                  <input
-                    type="text"
+                  <select
                     value={itemId}
-                    onChange={(e) => setItemId(e.target.value)}
-                    placeholder="ITM-0001"
+                    onChange={handleInventoryItemSelect}
+                    disabled={inventoryLoading}
                     required
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
-                  />
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {inventoryLoading
+                        ? "Loading inventory items..."
+                        : inventoryItems.length === 0
+                          ? "No inventory items found"
+                          : "Select item ID"}
+                    </option>
+
+                    {inventoryItems.map((inventoryItem) => {
+                      const alreadyAdded = items.some(
+                        (item) =>
+                          item.itemId.toLowerCase() ===
+                          String(inventoryItem.itemCode).toLowerCase(),
+                      );
+
+                      return (
+                        <option
+                          key={inventoryItem._id || inventoryItem.itemCode}
+                          value={inventoryItem.itemCode}
+                          disabled={alreadyAdded}
+                        >
+                          {inventoryItem.itemCode} — {inventoryItem.name}
+                          {alreadyAdded ? " (already added)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
 
                 {/* ITEM NAME */}
@@ -1790,10 +1889,10 @@ const Purchases = () => {
                   <input
                     type="text"
                     value={itemName}
-                    onChange={(e) => setItemName(e.target.value)}
-                    placeholder="HP Desktop Computer"
+                    readOnly
+                    placeholder="Auto-filled from item ID"
                     required
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
                   />
                 </div>
 
@@ -1809,10 +1908,10 @@ const Purchases = () => {
                     <input
                       type="text"
                       value={itemCategory}
-                      onChange={(e) => setItemCategory(e.target.value)}
-                      placeholder="Electronics"
+                      readOnly
+                      placeholder="Auto-filled"
                       required
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
                     />
                   </div>
 
@@ -1825,10 +1924,10 @@ const Purchases = () => {
                     <input
                       type="text"
                       value={itemUnit}
-                      onChange={(e) => setItemUnit(e.target.value)}
-                      placeholder="Nos"
+                      readOnly
+                      placeholder="Auto-filled"
                       required
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none bg-slate-50 text-slate-600 cursor-not-allowed"
                     />
                   </div>
                 </div>
