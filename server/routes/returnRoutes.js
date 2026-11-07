@@ -1,3 +1,4 @@
+
 import express from "express";
 
 import {
@@ -5,6 +6,7 @@ import {
   getReturnById,
   createReturn,
   updateReturn,
+  updateReturnStatus,
   deleteReturn,
 } from "../controllers/returnController.js";
 
@@ -15,7 +17,7 @@ const returnRouter = express.Router();
 
 returnRouter.use(protect);
 
-// Admin and department users
+// Admin and department users can view requests
 returnRouter.get(
   "/",
   authorize("admin", "department"),
@@ -28,19 +30,28 @@ returnRouter.get(
   getReturnById,
 );
 
+// Admin and department users can submit requests
 returnRouter.post(
   "/",
   authorize("admin", "department"),
   createReturn,
 );
 
+// Only admin can update request details
 returnRouter.put(
   "/:id",
-  authorize("admin", "department"),
+  authorize("admin"),
   updateReturn,
 );
 
-// Only admin can delete
+// Only admin can approve, inspect, complete, or reject
+returnRouter.patch(
+  "/:id/status",
+  authorize("admin"),
+  updateReturnStatus,
+);
+
+// Only admin can delete requests
 returnRouter.delete(
   "/:id",
   authorize("admin"),

@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 import Return from "../models/Return.js";
@@ -10,8 +11,10 @@ import StockOut from "../models/StockOut.js";
 // --------------------------------------------------
 
 const RETURN_STATUSES = [
-  "Completed",
+  "Pending",
+  "Approved",
   "Under Inspection",
+  "Completed",
   "Rejected",
 ];
 
@@ -19,6 +22,13 @@ const RETURN_CONDITIONS = [
   "Good",
   "Repair",
   "Damaged",
+];
+
+const RESERVED_RETURN_STATUSES = [
+  "Pending",
+  "Approved",
+  "Under Inspection",
+  "Completed",
 ];
 
 // --------------------------------------------------
@@ -103,15 +113,16 @@ const generateReturnNo = async () => {
   return `${prefix}${String(nextNumber).padStart(3, "0")}`;
 };
 
-const isValidDate = (value) => {
-  return value && !Number.isNaN(new Date(value).getTime());
-};
+const isValidDate = (value) =>
+  value && !Number.isNaN(new Date(value).getTime());
 
 // --------------------------------------------------
-// GET PREVIOUSLY RETURNED QUANTITY
+// GET PREVIOUSLY RESERVED RETURN QUANTITY
 //
-// Completed and Under Inspection count.
-// Rejected returns do not count.
+// Pending, Approved, Under Inspection, and Completed
+// requests reserve the issued quantity.
+//
+// Rejected requests do not count.
 // --------------------------------------------------
 
 const getPreviouslyReturnedQuantity = async (
@@ -123,7 +134,7 @@ const getPreviouslyReturnedQuantity = async (
       String(stockOutId),
     ),
     status: {
-      $in: ["Completed", "Under Inspection"],
+      $in: RESERVED_RETURN_STATUSES,
     },
   };
 
@@ -233,7 +244,7 @@ const validateStockOutReturn = async ({
       message:
         `Only ${remainingQuantity} item(s) can be returned. ` +
         `Issued: ${issuedQuantity}, ` +
-        `already returned: ${alreadyReturned}.`,
+        `already requested/returned: ${alreadyReturned}.`,
       issuedQuantity,
       alreadyReturned,
       remainingQuantity,
@@ -252,11 +263,10 @@ const validateStockOutReturn = async ({
 // --------------------------------------------------
 // APPLY INVENTORY CHANGES
 //
-// Completed and Under Inspection add stock.
-// Rejected does not add stock.
+// Only Completed returns affect available stock.
 //
-// On update, reverse the old return effect first,
-// then apply the new return effect.
+// On update, reverse the old Completed effect first,
+// then apply the new Completed effect.
 // --------------------------------------------------
 
 const applyInventoryChanges = async ({
@@ -270,8 +280,8 @@ const applyInventoryChanges = async ({
 }) => {
   const changes = new Map();
 
-  // Reverse the old return.
-  if (oldInventoryId && oldStatus !== "Rejected") {
+  // Reverse old completed return.
+  if (oldInventoryId && oldStatus === "Completed") {
     const id = String(oldInventoryId);
 
     changes.set(
@@ -280,8 +290,8 @@ const applyInventoryChanges = async ({
     );
   }
 
-  // Apply the new return.
-  if (newInventoryId && newStatus !== "Rejected") {
+  // Apply new completed return.
+  if (newInventoryId && newStatus === "Completed") {
     const id = String(newInventoryId);
 
     changes.set(
@@ -290,9 +300,9 @@ const applyInventoryChanges = async ({
     );
   }
 
-  // Validate every affected inventory item first.
   const updates = [];
 
+  // Validate all inventory changes first.
   for (const [inventoryId, difference] of changes) {
     if (difference === 0) continue;
 
@@ -334,7 +344,7 @@ const applyInventoryChanges = async ({
     });
   }
 
-  // Save only after all affected items pass validation.
+  // Save after validation.
   for (const update of updates) {
     update.inventoryItem.available =
       update.newAvailable;
@@ -390,6 +400,7 @@ export const getReturns = async (req, res) => {
         { returnedBy: regex },
         { reason: regex },
         { remarks: regex },
+        { rejectionReason: regex },
       ];
     }
 
@@ -447,6 +458,9 @@ export const getReturns = async (req, res) => {
       permissions: {
         canDelete: admin,
         canChooseDepartment: admin,
+        canUpdate: admin,
+        canProcess: admin,
+        canSubmitRequest: true,
         departmentId: admin
           ? null
           : String(assignedDepartment._id),
@@ -522,7 +536,11 @@ export const getReturnById = async (req, res) => {
 };
 
 // --------------------------------------------------
-// CREATE RETURN
+// CREATE RETURN REQUEST
+//
+// Department submits a request.
+// Status is always Pending.
+// Inventory is not changed.
 // --------------------------------------------------
 
 export const createReturn = async (req, res) => {
@@ -538,8 +556,6 @@ export const createReturn = async (req, res) => {
       returnDate,
       returnedBy,
       condition,
-      status = "Completed",
-      receivedBy,
       reason,
       remarks,
     } = req.body;
@@ -568,7 +584,6 @@ export const createReturn = async (req, res) => {
       !returnDate ||
       !returnedBy?.trim() ||
       !condition ||
-      !receivedBy?.trim() ||
       !reason?.trim()
     ) {
       return res.status(400).json({
@@ -610,13 +625,6 @@ export const createReturn = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid return condition",
-      });
-    }
-
-    if (!RETURN_STATUSES.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid return status",
       });
     }
 
@@ -694,20 +702,14 @@ export const createReturn = async (req, res) => {
       returnDate,
       returnedBy: returnedBy.trim(),
       condition,
-      status,
-      receivedBy: receivedBy.trim(),
+      status: "Pending",
+      receivedBy: "",
       reason: reason.trim(),
       remarks: remarks?.trim() || "",
+      rejectionReason: "",
+      approvedBy: null,
+      approvedAt: null,
     });
-
-    // Rejected returns do not increase available stock.
-    if (status !== "Rejected") {
-      await applyInventoryChanges({
-        newInventoryId: inventory,
-        newQuantity: returnQuantity,
-        newStatus: status,
-      });
-    }
 
     const populatedReturn = await populateReturn(
       Return.findById(newReturn._id),
@@ -715,7 +717,7 @@ export const createReturn = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Return record created successfully",
+      message: "Return request submitted successfully. Waiting for admin approval.",
       return: populatedReturn,
     });
   } catch (error) {
@@ -723,19 +725,27 @@ export const createReturn = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to create return record",
+      message: "Failed to submit return request",
       error: error.message,
     });
   }
 };
 
 // --------------------------------------------------
-// UPDATE RETURN
+// UPDATE RETURN DETAILS
+// ADMIN ONLY
+//
+// Status changes must use updateReturnStatus.
 // --------------------------------------------------
 
 export const updateReturn = async (req, res) => {
   try {
-    const admin = isAdmin(req);
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only administrators can update return requests",
+      });
+    }
 
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({
@@ -744,24 +754,8 @@ export const updateReturn = async (req, res) => {
       });
     }
 
-    const returnQuery = { _id: req.params.id };
-
-    if (!admin) {
-      const assignedDepartment =
-        await getAssignedDepartment(req);
-
-      if (!assignedDepartment) {
-        return res.status(403).json({
-          success: false,
-          message: "No department assigned to this user",
-        });
-      }
-
-      returnQuery.department = assignedDepartment._id;
-    }
-
     const returnRecord =
-      await Return.findOne(returnQuery);
+      await Return.findById(req.params.id);
 
     if (!returnRecord) {
       return res.status(404).json({
@@ -779,15 +773,13 @@ export const updateReturn = async (req, res) => {
       returnDate,
       returnedBy,
       condition,
-      status,
       receivedBy,
       reason,
       remarks,
     } = req.body;
 
-    const finalDepartment = admin
-      ? department || getDocumentId(returnRecord.department)
-      : getDocumentId(returnRecord.department);
+    const finalDepartment =
+      department || getDocumentId(returnRecord.department);
 
     const finalInventory =
       inventory || getDocumentId(returnRecord.inventory);
@@ -813,9 +805,6 @@ export const updateReturn = async (req, res) => {
     const finalCondition =
       condition || returnRecord.condition;
 
-    const finalStatus =
-      status || returnRecord.status;
-
     const finalReceivedBy =
       receivedBy !== undefined
         ? String(receivedBy).trim()
@@ -836,7 +825,6 @@ export const updateReturn = async (req, res) => {
       !finalInventory ||
       !finalReturnDate ||
       !finalReturnedBy ||
-      !finalReceivedBy ||
       !finalReason
     ) {
       return res.status(400).json({
@@ -876,13 +864,6 @@ export const updateReturn = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid return condition",
-      });
-    }
-
-    if (!RETURN_STATUSES.includes(finalStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid return status",
       });
     }
 
@@ -953,17 +934,16 @@ export const updateReturn = async (req, res) => {
       });
     }
 
-    // Reverse the old stock effect and apply the new one.
+    // If the return is already completed, update the
+    // inventory difference when its details change.
     await applyInventoryChanges({
-      oldInventoryId: getDocumentId(
-        returnRecord.inventory,
-      ),
+      oldInventoryId: getDocumentId(returnRecord.inventory),
       oldQuantity: Number(returnRecord.quantity),
       oldStatus: returnRecord.status,
 
       newInventoryId: finalInventory,
       newQuantity: finalQuantity,
-      newStatus: finalStatus,
+      newStatus: returnRecord.status,
     });
 
     returnRecord.returnNo = finalReturnNo;
@@ -974,7 +954,6 @@ export const updateReturn = async (req, res) => {
     returnRecord.returnDate = finalReturnDate;
     returnRecord.returnedBy = finalReturnedBy;
     returnRecord.condition = finalCondition;
-    returnRecord.status = finalStatus;
     returnRecord.receivedBy = finalReceivedBy;
     returnRecord.reason = finalReason;
     returnRecord.remarks = finalRemarks;
@@ -996,6 +975,175 @@ export const updateReturn = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to update return record",
+      error: error.message,
+    });
+  }
+};
+
+// --------------------------------------------------
+// UPDATE RETURN REQUEST STATUS
+// ADMIN ONLY
+//
+// Pending -> Approved / Rejected
+// Approved -> Under Inspection / Completed / Rejected
+// Under Inspection -> Completed / Rejected
+// Completed and Rejected are final.
+// --------------------------------------------------
+
+export const updateReturnStatus = async (req, res) => {
+  try {
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only administrators can process return requests",
+      });
+    }
+
+    const { id } = req.params;
+
+    const {
+      status,
+      receivedBy,
+      remarks,
+      rejectionReason,
+    } = req.body;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return ID",
+      });
+    }
+
+    if (!RETURN_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return status",
+      });
+    }
+
+    const returnRecord = await Return.findById(id);
+
+    if (!returnRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "Return request not found",
+      });
+    }
+
+    const allowedTransitions = {
+      Pending: ["Approved", "Rejected"],
+      Approved: [
+        "Under Inspection",
+        "Completed",
+        "Rejected",
+      ],
+      "Under Inspection": ["Completed", "Rejected"],
+      Completed: [],
+      Rejected: [],
+    };
+
+    if (
+      !allowedTransitions[returnRecord.status]?.includes(status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          `Cannot change status from ${returnRecord.status} to ${status}`,
+      });
+    }
+
+    if (status === "Completed" && !receivedBy?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Please provide the name of the person who received the returned item",
+      });
+    }
+
+    if (
+      status === "Rejected" &&
+      !rejectionReason?.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Please provide a reason for rejecting this request",
+      });
+    }
+
+    // Recheck available return quantity before completion.
+    if (status === "Completed") {
+      const validation = await validateStockOutReturn({
+        stockOutId: returnRecord.stockOut,
+        inventoryId: returnRecord.inventory,
+        departmentId: returnRecord.department,
+        quantity: returnRecord.quantity,
+        excludeReturnId: returnRecord._id,
+      });
+
+      if (!validation.valid) {
+        return res.status(validation.status).json({
+          success: false,
+          message: validation.message,
+          issuedQuantity: validation.issuedQuantity,
+          alreadyReturned: validation.alreadyReturned,
+          remainingQuantity: validation.remainingQuantity,
+        });
+      }
+    }
+
+    const oldStatus = returnRecord.status;
+
+    // Only a transition to/from Completed changes stock.
+    await applyInventoryChanges({
+      oldInventoryId: getDocumentId(returnRecord.inventory),
+      oldQuantity: Number(returnRecord.quantity),
+      oldStatus,
+
+      newInventoryId: getDocumentId(returnRecord.inventory),
+      newQuantity: Number(returnRecord.quantity),
+      newStatus: status,
+    });
+
+    returnRecord.status = status;
+
+    if (status === "Approved") {
+      returnRecord.approvedBy = req.user._id;
+      returnRecord.approvedAt = new Date();
+    }
+
+    if (status === "Completed") {
+      returnRecord.receivedBy = receivedBy.trim();
+    }
+
+    if (status === "Rejected") {
+      returnRecord.rejectionReason =
+        rejectionReason.trim();
+    }
+
+    if (remarks !== undefined) {
+      returnRecord.remarks = String(remarks).trim();
+    }
+
+    await returnRecord.save();
+
+    const updatedReturn = await populateReturn(
+      Return.findById(returnRecord._id),
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        `Return request ${status.toLowerCase()} successfully`,
+      return: updatedReturn,
+    });
+  } catch (error) {
+    console.error("Update Return Status Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update return request status",
       error: error.message,
     });
   }
@@ -1033,12 +1181,10 @@ export const deleteReturn = async (req, res) => {
       });
     }
 
-    // Reverse inventory changes only for accepted returns.
-    if (returnRecord.status !== "Rejected") {
+    // Reverse inventory only if this return was completed.
+    if (returnRecord.status === "Completed") {
       await applyInventoryChanges({
-        oldInventoryId: getDocumentId(
-          returnRecord.inventory,
-        ),
+        oldInventoryId: getDocumentId(returnRecord.inventory),
         oldQuantity: Number(returnRecord.quantity),
         oldStatus: returnRecord.status,
       });

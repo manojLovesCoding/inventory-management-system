@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const returnSchema = new mongoose.Schema(
@@ -58,20 +59,43 @@ const returnSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["Completed", "Under Inspection", "Rejected"],
-      default: "Completed",
+      enum: [
+        "Pending",
+        "Approved",
+        "Under Inspection",
+        "Completed",
+        "Rejected",
+      ],
+      default: "Pending",
     },
 
     receivedBy: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
 
     remarks: {
       type: String,
       trim: true,
       default: "",
+    },
+
+    rejectionReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    approvedAt: {
+      type: Date,
+      default: null,
     },
   },
   {
