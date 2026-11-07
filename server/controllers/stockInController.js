@@ -1,13 +1,9 @@
 import StockIn from "../models/StockIn.js";
 import Supplier from "../models/Supplier.js";
 import Purchase from "../models/Purchase.js";
-import Inventory from "../models/Inventory.js"
+import Inventory from "../models/Inventory.js";
 
-const stockInStatuses = [
-  "Pending",
-  "Received",
-  "Cancelled",
-];
+const stockInStatuses = ["Pending", "Received", "Cancelled"];
 
 // =========================
 // GENERATE STOCK IN NUMBER
@@ -30,9 +26,7 @@ const generateStockInNo = async () => {
     return `${prefix}001`;
   }
 
-  const lastNumber = Number(
-    lastStockIn.stockInNo.replace(prefix, "")
-  );
+  const lastNumber = Number(lastStockIn.stockInNo.replace(prefix, ""));
 
   return `${prefix}${String(lastNumber + 1).padStart(3, "0")}`;
 };
@@ -88,6 +82,9 @@ const calculateItem = (item) => {
 };
 
 // =========================
+// INVENTORY HELPERS
+// =========================
+
 const calculateInventoryStatus = (available, minimumStock = 0) => {
   if (available <= 0) return "Out of Stock";
   if (minimumStock > 0 && available <= minimumStock) return "Low Stock";
@@ -95,17 +92,19 @@ const calculateInventoryStatus = (available, minimumStock = 0) => {
 };
 
 const applyStockInToInventory = async (itemData) => {
-  const { itemId, item, category, unit, quantity } = itemData;
+  const { itemId, item, quantity } = itemData;
 
-  // Find by itemCode (or _id fallback if itemId matches an ObjectId)
-  let inventoryItem = await Inventory.findOne({
+  // Find by itemCode or name
+  const inventoryItem = await Inventory.findOne({
     $or: [{ itemCode: itemId }, { name: item }],
   });
 
   if (inventoryItem) {
     // Increment existing stock
-    inventoryItem.quantity = (Number(inventoryItem.quantity) || 0) + Number(quantity);
-    inventoryItem.available = (Number(inventoryItem.available) || 0) + Number(quantity);
+    inventoryItem.quantity =
+      (Number(inventoryItem.quantity) || 0) + Number(quantity);
+    inventoryItem.available =
+      (Number(inventoryItem.available) || 0) + Number(quantity);
     inventoryItem.status = calculateInventoryStatus(
       inventoryItem.available,
       inventoryItem.minimumStock
@@ -115,24 +114,104 @@ const applyStockInToInventory = async (itemData) => {
 };
 
 // =========================
+// SYNC PURCHASE STATUS
+// =========================
+//
+// Recalculates a purchase order's status from the quantities
+// that have actually been received through "Received" Stock In records.
+//
+//   all items fully received      -> "Received"
+//   some quantity received        -> "Partially Received"
+//   nothing received (any more)   -> back to "Ordered"
+//                                    (only if it was Received / Partially Received)
+//
+// "Cancelled" purchases are never changed automatically. A "Draft" purchase
+// is promoted as soon as stock is received against it, and stays "Draft"
+// while nothing has been received.
+// Errors are logged but never block the Stock In response.
+// =========================
+
+const syncPurchaseStatus = async (purchaseId) => {
+  try {
+    if (!purchaseId) return;
+
+    const id = purchaseId._id || purchaseId;
+
+    const purchase = await Purchase.findById(id).select("status items");
+
+    if (!purchase) return;
+
+    // Cancelled purchases are never changed automatically.
+    // Draft purchases ARE promoted once stock is received against them.
+    if (purchase.status === "Cancelled") {
+      return;
+    }
+
+    const receivedStockIns = await StockIn.find({
+      purchase: purchase._id,
+      status: "Received",
+    }).select("item.itemId item.quantity");
+
+    // Total received quantity per itemId
+    const receivedMap = {};
+
+    receivedStockIns.forEach((record) => {
+      const key = record.item?.itemId;
+
+      if (!key) return;
+
+      receivedMap[key] =
+        (receivedMap[key] || 0) + Number(record.item?.quantity || 0);
+    });
+
+    const EPSILON = 0.0001;
+
+    let totalReceived = 0;
+    let allFullyReceived = purchase.items.length > 0;
+
+    purchase.items.forEach((purchaseItem) => {
+      const received = receivedMap[purchaseItem.itemId] || 0;
+
+      totalReceived += received;
+
+      if (received + EPSILON < Number(purchaseItem.quantity)) {
+        allFullyReceived = false;
+      }
+    });
+
+    let newStatus = purchase.status;
+
+    if (allFullyReceived) {
+      newStatus = "Received";
+    } else if (totalReceived > 0) {
+      newStatus = "Partially Received";
+    } else if (
+      purchase.status === "Received" ||
+      purchase.status === "Partially Received"
+    ) {
+      newStatus = "Ordered";
+    }
+
+    if (newStatus !== purchase.status) {
+      await Purchase.updateOne({ _id: purchase._id }, { status: newStatus });
+    }
+  } catch (error) {
+    console.error("Sync purchase status error:", error);
+  }
+};
+
+// =========================
 // GET ALL STOCK IN
 // =========================
 
 export const getStockIns = async (req, res) => {
   try {
-    const {
-      search = "",
-      status = "All",
-      supplier = "",
-    } = req.query;
+    const { search = "", status = "All", supplier = "" } = req.query;
 
     const query = {};
 
     if (search.trim()) {
-      const searchRegex = new RegExp(
-        search.trim(),
-        "i"
-      );
+      const searchRegex = new RegExp(search.trim(), "i");
 
       query.$or = [
         { stockInNo: searchRegex },
@@ -157,10 +236,7 @@ export const getStockIns = async (req, res) => {
         "supplier",
         "supplierId name gstin contactPerson phone email city state"
       )
-      .populate(
-        "purchase",
-        "purchaseNo purchaseDate status"
-      )
+      .populate("purchase", "purchaseNo purchaseDate status")
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -184,17 +260,12 @@ export const getStockIns = async (req, res) => {
 
 export const getStockInById = async (req, res) => {
   try {
-    const stockIn = await StockIn.findById(
-      req.params.id
-    )
+    const stockIn = await StockIn.findById(req.params.id)
       .populate(
         "supplier",
         "supplierId name gstin contactPerson phone email address city state pincode status"
       )
-      .populate(
-        "purchase",
-        "purchaseNo purchaseDate invoiceNo status"
-      );
+      .populate("purchase", "purchaseNo purchaseDate invoiceNo status");
 
     if (!stockIn) {
       return res.status(404).json({
@@ -271,8 +342,7 @@ export const createStockIn = async (req, res) => {
     // CHECK SUPPLIER
     // -------------------------
 
-    const supplierExists =
-      await Supplier.findById(supplier);
+    const supplierExists = await Supplier.findById(supplier);
 
     if (!supplierExists) {
       return res.status(404).json({
@@ -288,8 +358,7 @@ export const createStockIn = async (req, res) => {
     let purchaseExists = null;
 
     if (purchase) {
-      purchaseExists =
-        await Purchase.findById(purchase);
+      purchaseExists = await Purchase.findById(purchase);
 
       if (!purchaseExists) {
         return res.status(404).json({
@@ -303,18 +372,15 @@ export const createStockIn = async (req, res) => {
     // STOCK IN NUMBER
     // -------------------------
 
-    let finalStockInNo =
-      stockInNo?.trim();
+    let finalStockInNo = stockInNo?.trim();
 
     if (!finalStockInNo) {
-      finalStockInNo =
-        await generateStockInNo();
+      finalStockInNo = await generateStockInNo();
     }
 
-    const duplicate =
-      await StockIn.findOne({
-        stockInNo: finalStockInNo,
-      });
+    const duplicate = await StockIn.findOne({
+      stockInNo: finalStockInNo,
+    });
 
     if (duplicate) {
       return res.status(409).json({
@@ -340,8 +406,7 @@ export const createStockIn = async (req, res) => {
     // ITEM
     // -------------------------
 
-    const calculatedItem =
-      calculateItem(item);
+    const calculatedItem = calculateItem(item);
 
     // -------------------------
     // CREATE
@@ -364,16 +429,17 @@ export const createStockIn = async (req, res) => {
       await applyStockInToInventory(calculatedItem);
     }
 
-    const populatedStockIn =
-      await StockIn.findById(stockIn._id)
-        .populate(
-          "supplier",
-          "supplierId name gstin contactPerson phone email address city state pincode status"
-        )
-        .populate(
-          "purchase",
-          "purchaseNo purchaseDate invoiceNo status"
-        );
+    // --- UPDATE PURCHASE ORDER STATUS ---
+    if (purchase) {
+      await syncPurchaseStatus(purchase);
+    }
+
+    const populatedStockIn = await StockIn.findById(stockIn._id)
+      .populate(
+        "supplier",
+        "supplierId name gstin contactPerson phone email address city state pincode status"
+      )
+      .populate("purchase", "purchaseNo purchaseDate invoiceNo status");
 
     res.status(201).json({
       success: true,
@@ -381,16 +447,11 @@ export const createStockIn = async (req, res) => {
       stockIn: populatedStockIn,
     });
   } catch (error) {
-    console.error(
-      "Create stock in error:",
-      error
-    );
+    console.error("Create stock in error:", error);
 
     res.status(400).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to create Stock In record",
+      message: error.message || "Failed to create Stock In record",
     });
   }
 };
@@ -401,8 +462,7 @@ export const createStockIn = async (req, res) => {
 
 export const updateStockIn = async (req, res) => {
   try {
-    const stockIn =
-      await StockIn.findById(req.params.id);
+    const stockIn = await StockIn.findById(req.params.id);
 
     if (!stockIn) {
       return res.status(404).json({
@@ -451,8 +511,7 @@ export const updateStockIn = async (req, res) => {
       });
     }
 
-    const supplierExists =
-      await Supplier.findById(supplier);
+    const supplierExists = await Supplier.findById(supplier);
 
     if (!supplierExists) {
       return res.status(404).json({
@@ -462,8 +521,7 @@ export const updateStockIn = async (req, res) => {
     }
 
     if (purchase) {
-      const purchaseExists =
-        await Purchase.findById(purchase);
+      const purchaseExists = await Purchase.findById(purchase);
 
       if (!purchaseExists) {
         return res.status(404).json({
@@ -473,14 +531,12 @@ export const updateStockIn = async (req, res) => {
       }
     }
 
-    const finalStockInNo =
-      stockInNo?.trim() || stockIn.stockInNo;
+    const finalStockInNo = stockInNo?.trim() || stockIn.stockInNo;
 
-    const duplicate =
-      await StockIn.findOne({
-        stockInNo: finalStockInNo,
-        _id: { $ne: stockIn._id },
-      });
+    const duplicate = await StockIn.findOne({
+      stockInNo: finalStockInNo,
+      _id: { $ne: stockIn._id },
+    });
 
     if (duplicate) {
       return res.status(409).json({
@@ -489,8 +545,7 @@ export const updateStockIn = async (req, res) => {
       });
     }
 
-    const finalStatus =
-      status || stockIn.status;
+    const finalStatus = status || stockIn.status;
 
     if (!stockInStatuses.includes(finalStatus)) {
       return res.status(400).json({
@@ -499,50 +554,41 @@ export const updateStockIn = async (req, res) => {
       });
     }
 
-    const calculatedItem =
-      calculateItem(item);
+    const calculatedItem = calculateItem(item);
 
-    stockIn.stockInNo =
-      finalStockInNo;
+    // Remember the previously linked purchase so it can be re-synced
+    // if this record is moved to a different purchase order.
+    const previousPurchaseId = stockIn.purchase
+      ? String(stockIn.purchase)
+      : null;
 
-    stockIn.referenceNo =
-      referenceNo.trim();
-
-    stockIn.purchase =
-      purchase || null;
-
-    stockIn.supplier =
-      supplier;
-
-    stockIn.receivedDate =
-      receivedDate;
-
-    stockIn.receivedBy =
-      receivedBy.trim();
-
-    stockIn.status =
-      finalStatus;
-
-    stockIn.item =
-      calculatedItem;
-
-    stockIn.notes =
-      notes?.trim() || "";
+    stockIn.stockInNo = finalStockInNo;
+    stockIn.referenceNo = referenceNo.trim();
+    stockIn.purchase = purchase || null;
+    stockIn.supplier = supplier;
+    stockIn.receivedDate = receivedDate;
+    stockIn.receivedBy = receivedBy.trim();
+    stockIn.status = finalStatus;
+    stockIn.item = calculatedItem;
+    stockIn.notes = notes?.trim() || "";
 
     await stockIn.save();
 
-    const updatedStockIn =
-      await StockIn.findById(
-        stockIn._id
+    // --- UPDATE PURCHASE ORDER STATUS ---
+    if (purchase) {
+      await syncPurchaseStatus(purchase);
+    }
+
+    if (previousPurchaseId && previousPurchaseId !== String(purchase || "")) {
+      await syncPurchaseStatus(previousPurchaseId);
+    }
+
+    const updatedStockIn = await StockIn.findById(stockIn._id)
+      .populate(
+        "supplier",
+        "supplierId name gstin contactPerson phone email address city state pincode status"
       )
-        .populate(
-          "supplier",
-          "supplierId name gstin contactPerson phone email address city state pincode status"
-        )
-        .populate(
-          "purchase",
-          "purchaseNo purchaseDate invoiceNo status"
-        );
+      .populate("purchase", "purchaseNo purchaseDate invoiceNo status");
 
     res.status(200).json({
       success: true,
@@ -550,16 +596,11 @@ export const updateStockIn = async (req, res) => {
       stockIn: updatedStockIn,
     });
   } catch (error) {
-    console.error(
-      "Update stock in error:",
-      error
-    );
+    console.error("Update stock in error:", error);
 
     res.status(400).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to update Stock In record",
+      message: error.message || "Failed to update Stock In record",
     });
   }
 };
@@ -604,8 +645,16 @@ export const updateStockInStatus = async (req, res) => {
       await applyStockInToInventory(existingStockIn.item);
     }
 
+    // --- UPDATE PURCHASE ORDER STATUS ---
+    if (existingStockIn.purchase) {
+      await syncPurchaseStatus(existingStockIn.purchase);
+    }
+
     const populatedStockIn = await StockIn.findById(existingStockIn._id)
-      .populate("supplier", "supplierId name gstin contactPerson phone email address city state pincode status")
+      .populate(
+        "supplier",
+        "supplierId name gstin contactPerson phone email address city state pincode status"
+      )
       .populate("purchase", "purchaseNo purchaseDate invoiceNo status");
 
     res.status(200).json({
@@ -615,6 +664,7 @@ export const updateStockInStatus = async (req, res) => {
     });
   } catch (error) {
     console.error("Update stock in status error:", error);
+
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -626,15 +676,9 @@ export const updateStockInStatus = async (req, res) => {
 // DELETE
 // =========================
 
-export const deleteStockIn = async (
-  req,
-  res
-) => {
+export const deleteStockIn = async (req, res) => {
   try {
-    const stockIn =
-      await StockIn.findById(
-        req.params.id
-      );
+    const stockIn = await StockIn.findById(req.params.id);
 
     if (!stockIn) {
       return res.status(404).json({
@@ -643,19 +687,21 @@ export const deleteStockIn = async (
       });
     }
 
-    await StockIn.findByIdAndDelete(
-      req.params.id
-    );
+    const linkedPurchaseId = stockIn.purchase;
+
+    await StockIn.findByIdAndDelete(req.params.id);
+
+    // --- UPDATE PURCHASE ORDER STATUS ---
+    if (linkedPurchaseId) {
+      await syncPurchaseStatus(linkedPurchaseId);
+    }
 
     res.status(200).json({
       success: true,
       message: "Stock In record deleted successfully",
     });
   } catch (error) {
-    console.error(
-      "Delete stock in error:",
-      error
-    );
+    console.error("Delete stock in error:", error);
 
     res.status(500).json({
       success: false,

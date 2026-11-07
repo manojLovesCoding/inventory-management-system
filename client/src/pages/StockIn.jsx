@@ -1072,7 +1072,8 @@ const StockIn = () => {
 
                 {selectedPurchase && !hasPendingItems && (
                   <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
-                    All items in this purchase order have already been received.
+                    All items in this purchase order have already been
+                    received.
                   </div>
                 )}
 
@@ -1111,9 +1112,7 @@ const StockIn = () => {
 
                 <button
                   type="submit"
-                  disabled={
-                    isSaving || !selectedPurchaseItem || remainingQty <= 0
-                  }
+                  disabled={isSaving || !selectedPurchaseItem || remainingQty <= 0}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-4 h-4" />
