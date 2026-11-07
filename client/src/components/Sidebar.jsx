@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
@@ -10,8 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  FileBarChart,
-  LayoutDashboard,
   LogOut,
   Menu,
   Package,
@@ -39,13 +36,9 @@ const Sidebar = () => {
     administration: true,
   });
 
-  // Get user role
   const userRole = user?.role?.toLowerCase();
-
-  // Check whether logged-in user is admin
   const isAdmin = userRole === "admin";
 
-  // Close mobile sidebar whenever route changes
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
@@ -57,125 +50,176 @@ const Sidebar = () => {
     }));
   };
 
-  // Check active route
   const isActive = (href) => {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
-  // Logout
   const handleLogout = () => {
     logout();
     window.location.href = "/login";
   };
 
-  // Menu groups
-  const menuGroups = [
-    {
-      title: "Main",
-      items: [
-        {
-          name: "Dashboard",
-          href: "/dashboard",
-          icon: LayoutDashboard,
-        },
-      ],
-    },
-
-    // College section
-    {
-      title: "College",
-      key: "college",
-      items: [
-        {
-          name: "Item Requests",
-          href: "/requests",
-          icon: ClipboardList,
-        },
-      ],
-    },
-
-    // Operational pages
-    // Available to both admin and department users
-    {
-      title: "Inventory & Stock",
-      key: "operations",
-      items: [
-        {
-          name: "Items",
-          href: "/inventory",
-          icon: Package,
-        },
-        {
-          name: "Stock In",
-          href: "/stock/in",
-          icon: ArrowDownToLine,
-        },
-        {
-          name: "Stock Out",
-          href: "/stock/out",
-          icon: ArrowUpFromLine,
-        },
-        {
-          name: "Returns",
-          href: "/stock/returns",
-          icon: RotateCcw,
-        },
-        {
-          name: "Adjustments",
-          href: "/stock/adjustments",
-          icon: SlidersHorizontal,
-        },
-        {
-          name: "Purchases",
-          href: "/purchases",
-          icon: ShoppingCart,
-        },
-      ],
-    },
-
-    // Admin-only pages
-    {
-      title: "Administration",
-      key: "administration",
-      roles: ["admin"],
-      items: [
-        {
-          name: "Categories",
-          href: "/categories",
-          icon: Tags,
-        },
-        {
-          name: "Suppliers",
-          href: "/suppliers",
-          icon: Truck,
-        },
-        {
-          name: "Departments",
-          href: "/departments",
-          icon: Building2,
-        },
-        {
-          name: "Reports",
-          href: "/reports",
-          icon: FileBarChart,
-        },
-        {
-          name: "Users",
-          href: "/users",
-          icon: Users,
-        },
-        {
-          name: "Settings",
-          href: "/settings",
-          icon: Settings,
-        },
-      ],
-    },
-  ];
+  const menuGroups =
+    userRole === "admin"
+      ? [
+          {
+            title: "College Management",
+            key: "college",
+            items: [
+              {
+                name: "Item Requests",
+                href: "/requests",
+                icon: ClipboardList,
+              },
+            ],
+          },
+          {
+            title: "Inventory Management",
+            key: "operations",
+            items: [
+              {
+                name: "Items",
+                href: "/inventory",
+                icon: Package,
+                roles: ["admin", "store"],
+              },
+              {
+                name: "Stock In",
+                href: "/stock/in",
+                icon: ArrowDownToLine,
+                roles: ["admin", "store"],
+              },
+              {
+                name: "Stock Out",
+                href: "/stock/out",
+                icon: ArrowUpFromLine,
+                roles: ["admin", "store"],
+              },
+              {
+                name: "Returns",
+                href: "/stock/returns",
+                icon: RotateCcw,
+              },
+              {
+                name: "Adjustments",
+                href: "/stock/adjustments",
+                icon: SlidersHorizontal,
+                roles: ["admin", "store"],
+              },
+              {
+                name: "Purchases",
+                href: "/purchases",
+                icon: ShoppingCart,
+                roles: ["admin", "store"],
+              },
+            ],
+          },
+          {
+            title: "Administration",
+            key: "administration",
+            roles: ["admin"],
+            items: [
+              {
+                name: "Categories",
+                href: "/categories",
+                icon: Tags,
+              },
+              {
+                name: "Suppliers",
+                href: "/suppliers",
+                icon: Truck,
+              },
+              {
+                name: "Departments",
+                href: "/departments",
+                icon: Building2,
+              },
+              {
+                name: "Users",
+                href: "/users",
+                icon: Users,
+              },
+            ],
+          },
+        ]
+      : userRole === "department"
+        ? [
+            {
+              title: "Department Services",
+              key: "college",
+              items: [
+                {
+                  name: "Item Requests",
+                  href: "/requests",
+                  icon: ClipboardList,
+                },
+              ],
+            },
+            {
+              title: "Department Stock",
+              key: "operations",
+              items: [
+                {
+                  name: "Returns",
+                  href: "/stock/returns",
+                  icon: RotateCcw,
+                },
+              ],
+            },
+          ]
+        : [
+            {
+              title: "College Services",
+              key: "college",
+              items: [
+                {
+                  name: "Item Requests",
+                  href: "/requests",
+                  icon: ClipboardList,
+                },
+              ],
+            },
+            {
+              title: "Store Operations",
+              key: "operations",
+              items: [
+                {
+                  name: "Items",
+                  href: "/inventory",
+                  icon: Package,
+                },
+                {
+                  name: "Stock In",
+                  href: "/stock/in",
+                  icon: ArrowDownToLine,
+                },
+                {
+                  name: "Stock Out",
+                  href: "/stock/out",
+                  icon: ArrowUpFromLine,
+                },
+                {
+                  name: "Returns",
+                  href: "/stock/returns",
+                  icon: RotateCcw,
+                },
+                {
+                  name: "Adjustments",
+                  href: "/stock/adjustments",
+                  icon: SlidersHorizontal,
+                },
+                {
+                  name: "Purchases",
+                  href: "/purchases",
+                  icon: ShoppingCart,
+                },
+              ],
+            },
+          ];
 
   const sidebarContent = (
     <>
-      {/* HEADER */}
+      {/* SIDEBAR HEADER */}
       <div className="px-5 py-5 border-b border-white/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
@@ -194,7 +238,6 @@ const Sidebar = () => {
             </div>
           </div>
 
-          {/* Mobile Close */}
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
@@ -206,7 +249,7 @@ const Sidebar = () => {
         </div>
       </div>
 
-      {/* USER CARD */}
+      {/* USER PROFILE */}
       <div className="mx-3 mt-4 mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center ring-1 ring-white/10 shrink-0">
@@ -224,7 +267,6 @@ const Sidebar = () => {
               {userRole || "administrator"}
             </p>
 
-            {/* Show assigned department for department users */}
             {!isAdmin && user?.department && (
               <p className="text-[10px] text-indigo-300 truncate mt-1">
                 {typeof user.department === "object"
@@ -240,7 +282,6 @@ const Sidebar = () => {
       <div className="flex-1 px-3 pb-4 overflow-y-auto scrollbar-thin">
         {menuGroups
           .filter((group) => {
-            // Show restricted groups only to permitted roles
             if (group.roles) {
               return group.roles.includes(userRole);
             }
@@ -248,13 +289,19 @@ const Sidebar = () => {
             return true;
           })
           .map((group) => {
-            const isGroupOpen = group.key
-              ? openMenus[group.key]
-              : true;
+            const isGroupOpen = group.key ? openMenus[group.key] : true;
+
+            // Filter menu items according to user role.
+            const visibleItems = group.items.filter((item) => {
+              if (item.roles) {
+                return item.roles.includes(userRole);
+              }
+
+              return true;
+            });
 
             return (
               <div key={group.title} className="mb-5">
-                {/* GROUP TITLE */}
                 <button
                   type="button"
                   disabled={!group.key}
@@ -276,10 +323,9 @@ const Sidebar = () => {
                   )}
                 </button>
 
-                {/* MENU ITEMS */}
                 {isGroupOpen && (
                   <div className="space-y-1">
-                    {group.items.map((item) => {
+                    {visibleItems.map((item) => {
                       const active = isActive(item.href);
                       const Icon = item.icon;
 
@@ -293,12 +339,10 @@ const Sidebar = () => {
                               : "text-slate-400 hover:bg-white/5 hover:text-white"
                           }`}
                         >
-                          {/* Active Indicator */}
                           {active && (
                             <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-indigo-500" />
                           )}
 
-                          {/* Icon */}
                           <Icon
                             className={`w-[17px] h-[17px] shrink-0 transition-colors ${
                               active
@@ -307,12 +351,8 @@ const Sidebar = () => {
                             }`}
                           />
 
-                          {/* Name */}
-                          <span className="flex-1 truncate">
-                            {item.name}
-                          </span>
+                          <span className="flex-1 truncate">{item.name}</span>
 
-                          {/* Active Arrow */}
                           {active && (
                             <ChevronRight className="w-3.5 h-3.5 text-indigo-400/60 shrink-0" />
                           )}
@@ -334,7 +374,6 @@ const Sidebar = () => {
           className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-[13px] font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-200"
         >
           <LogOut className="w-[17px] h-[17px] shrink-0" />
-
           <span>Log out</span>
         </button>
       </div>
