@@ -1,13 +1,17 @@
 
 import { Toaster } from "react-hot-toast";
-import { Navigate, Outlet, Route, Routes } from "react-router-dom";
+import {
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+} from "react-router-dom";
 
 import LoginLanding from "./pages/LoginLanding";
 import LoginForm from "./components/LoginForm";
 
 import Layout from "./pages/Layout";
 
-import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import Categories from "./pages/Categories";
 
@@ -22,9 +26,8 @@ import Suppliers from "./pages/Suppliers";
 import Departments from "./pages/Departments";
 import Requests from "./pages/Requests";
 
-import Reports from "./pages/Reports";
 import Users from "./pages/Users";
-import Settings from "./pages/Settings";
+
 
 import { useAuth } from "./context/AuthContext";
 import Loading from "./components/Loading";
@@ -65,7 +68,32 @@ const AdminRoute = () => {
   const userRole = user.role?.toLowerCase();
 
   if (userRole !== "admin") {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/requests" replace />;
+  }
+
+  return <Outlet />;
+};
+
+// ==========================================
+// DEPARTMENT RESTRICTED ROUTES
+// Department users cannot access these pages
+// Admin and store users can access them
+// ==========================================
+const DepartmentRestrictedRoute = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const userRole = user.role?.toLowerCase();
+
+  if (userRole === "department") {
+    return <Navigate to="/requests" replace />;
   }
 
   return <Outlet />;
@@ -83,7 +111,7 @@ const PublicRoute = ({ children }) => {
   }
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/requests" replace />;
   }
 
   return children;
@@ -103,9 +131,7 @@ const App = () => {
       />
 
       <Routes>
-        {/* ==================================
-            PUBLIC ROUTES
-        ================================== */}
+        {/* PUBLIC ROUTES */}
 
         <Route
           path="/login"
@@ -155,34 +181,32 @@ const App = () => {
           }
         />
 
-        {/* ==================================
-            PROTECTED APPLICATION
-            All authenticated users
-        ================================== */}
+        {/* PROTECTED APPLICATION */}
 
         <Route element={<ProtectedRoutes />}>
-          {/* Main */}
-          <Route path="/dashboard" element={<Dashboard />} />
-
-          {/* College */}
+          {/* COLLEGE */}
           <Route path="/requests" element={<Requests />} />
 
-          {/* Inventory */}
-          <Route path="/inventory" element={<Inventory />} />
+          {/* DEPARTMENT RESTRICTED PAGES */}
+          <Route element={<DepartmentRestrictedRoute />}>
+            <Route path="/inventory" element={<Inventory />} />
 
-          {/* Stock Operations */}
-          <Route path="/stock/in" element={<StockIn />} />
-          <Route path="/stock/out" element={<StockOut />} />
+            <Route path="/stock/in" element={<StockIn />} />
+
+            <Route path="/stock/out" element={<StockOut />} />
+
+            <Route
+              path="/stock/adjustments"
+              element={<Adjustments />}
+            />
+
+            <Route path="/purchases" element={<Purchases />} />
+          </Route>
+
+          {/* RETURNS - AVAILABLE TO ALL AUTHENTICATED USERS */}
           <Route path="/stock/returns" element={<Returns />} />
-          <Route path="/stock/adjustments" element={<Adjustments />} />
 
-          {/* Procurement */}
-          <Route path="/purchases" element={<Purchases />} />
-
-          {/* ==================================
-              ADMIN ONLY PAGES
-          ================================== */}
-
+          {/* ADMIN ONLY PAGES */}
           <Route element={<AdminRoute />}>
             <Route path="/categories" element={<Categories />} />
 
@@ -190,26 +214,22 @@ const App = () => {
 
             <Route path="/departments" element={<Departments />} />
 
-            <Route path="/reports" element={<Reports />} />
-
             <Route path="/users" element={<Users />} />
 
-            <Route path="/settings" element={<Settings />} />
+           
           </Route>
         </Route>
 
-        {/* ==================================
-            DEFAULT ROUTES
-        ================================== */}
+        {/* DEFAULT ROUTES */}
 
         <Route
           path="/"
-          element={<Navigate to="/dashboard" replace />}
+          element={<Navigate to="/requests" replace />}
         />
 
         <Route
           path="*"
-          element={<Navigate to="/login" replace />}
+          element={<Navigate to="/requests" replace />}
         />
       </Routes>
     </>
