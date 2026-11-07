@@ -23,7 +23,9 @@ stockOutRouter.get("/", getStockOuts);
 
 stockOutRouter.get("/:id", getStockOutById);
 
-stockOutRouter.post("/", createStockOut);
+
+// Only admin can create Stock Out records
+stockOutRouter.post("/", authorize("admin"), createStockOut);
 
 stockOutRouter.put("/:id", updateStockOut);
 

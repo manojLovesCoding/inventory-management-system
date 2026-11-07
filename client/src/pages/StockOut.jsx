@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpFromLine,
@@ -14,8 +15,13 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api/axios";
+import { useAuth } from "../context/AuthContext";
+
 
 const StockOut = () => {
+  const { user, loading: authLoading } = useAuth();
+  const isAdmin = user?.role?.toLowerCase() === "admin";
+
   const [stockOutRecords, setStockOutRecords] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -108,7 +114,6 @@ const StockOut = () => {
       ]);
     } catch (error) {
       console.error("Fetch departments error:", error);
-
       return [];
     }
   };
@@ -119,18 +124,15 @@ const StockOut = () => {
 
   const fetchRequests = async () => {
     try {
-      let response;
+      const response = await api.get("/requests");
 
-      try {
-        response = await api.get("/requests");
-      } catch {
-        response = await api.get("/requests");
-      }
-
-      return extractArray(response.data, ["itemRequests", "requests", "items"]);
+      return extractArray(response.data, [
+        "itemRequests",
+        "requests",
+        "items",
+      ]);
     } catch (error) {
       console.error("Fetch item requests error:", error);
-
       return [];
     }
   };
@@ -329,12 +331,6 @@ const StockOut = () => {
   };
 
   const getStatus = (record) => {
-    /*
-      StockOut schema does not contain a status field.
-
-      A successful Stock Out is therefore treated
-      as "Issued" in this UI.
-    */
     if (record?.status) {
       return record.status;
     }
@@ -471,13 +467,10 @@ const StockOut = () => {
     switch (status) {
       case "Issued":
         return "bg-emerald-50 text-emerald-700 border-emerald-200";
-
       case "Pending":
         return "bg-amber-50 text-amber-700 border-amber-200";
-
       case "Cancelled":
         return "bg-rose-50 text-rose-700 border-rose-200";
-
       default:
         return "bg-slate-50 text-slate-600 border-slate-200";
     }
@@ -488,6 +481,10 @@ const StockOut = () => {
   // =====================================================
 
   const openAddModal = () => {
+    if (!isAdmin || authLoading) {
+      return;
+    }
+
     const today = new Date().toISOString().split("T")[0];
 
     setFormData({
@@ -554,6 +551,11 @@ const StockOut = () => {
   const handleSaveStockOut = async (event) => {
     event.preventDefault();
 
+    if (!isAdmin) {
+      toast.error("Only admin can create Stock Out records");
+      return;
+    }
+
     if (!formData.inventory) {
       toast.error("Please select an inventory item");
       return;
@@ -586,10 +588,6 @@ const StockOut = () => {
       return;
     }
 
-    // -------------------------------------------------
-    // CHECK INVENTORY
-    // -------------------------------------------------
-
     const selectedInventoryItem = inventoryItems.find(
       (item) => String(getInventoryId(item)) === String(formData.inventory),
     );
@@ -610,28 +608,17 @@ const StockOut = () => {
       return;
     }
 
-    // -------------------------------------------------
-    // SAVE
-    // -------------------------------------------------
-
     try {
       setSubmitting(true);
 
       const payload = {
         stockOutNo: formData.stockOutNo.trim() || undefined,
-
         department: formData.department,
-
         inventory: formData.inventory,
-
         quantity,
-
         issuedDate: formData.issuedDate,
-
         issuedTo: formData.issuedTo.trim(),
-
         request: formData.request || null,
-
         notes: formData.notes.trim() || "",
       };
 
@@ -646,13 +633,6 @@ const StockOut = () => {
 
         setShowAddModal(false);
 
-        /*
-          Reload both Stock Out and Inventory.
-
-          This is safer than manually modifying
-          local inventory because the backend has
-          already reduced the actual inventory.
-        */
         try {
           const [stockOutData, inventoryData] = await Promise.all([
             fetchStockOuts(),
@@ -660,16 +640,10 @@ const StockOut = () => {
           ]);
 
           setStockOutRecords(stockOutData);
-
           setInventoryItems(inventoryData);
         } catch (refreshError) {
           console.error("Refresh after stock out error:", refreshError);
 
-          /*
-            If refresh fails, still add the returned
-            record so the user sees the newly created
-            Stock Out.
-          */
           if (response.data?.stockOut) {
             setStockOutRecords((prev) => [response.data.stockOut, ...prev]);
           }
@@ -725,14 +699,17 @@ const StockOut = () => {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddModal}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add Stock Out
-        </button>
+        {/* Only Admin Can Add Stock Out */}
+        {!authLoading && isAdmin && (
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Stock Out
+          </button>
+        )}
       </div>
 
       {/* SUMMARY */}
@@ -794,11 +771,8 @@ const StockOut = () => {
               className="w-full xl:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             >
               <option value="All">All Status</option>
-
               <option value="Issued">Issued</option>
-
               <option value="Pending">Pending</option>
-
               <option value="Cancelled">Cancelled</option>
             </select>
           </div>
@@ -823,31 +797,24 @@ const StockOut = () => {
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Stock Out
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Item
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Department
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Issued To
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Quantity
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Date
                     </th>
-
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Status
                     </th>
-
                     <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Action
                     </th>
@@ -860,7 +827,6 @@ const StockOut = () => {
                       key={getRecordId(record)}
                       className="hover:bg-slate-50/70 transition-colors"
                     >
-                      {/* STOCK OUT */}
                       <td className="px-5 py-4">
                         <p className="text-sm font-medium text-indigo-600">
                           {getStockOutNo(record)}
@@ -873,7 +839,6 @@ const StockOut = () => {
                         </p>
                       </td>
 
-                      {/* ITEM */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
@@ -892,7 +857,6 @@ const StockOut = () => {
                         </div>
                       </td>
 
-                      {/* DEPARTMENT */}
                       <td className="px-5 py-4">
                         <p className="text-sm text-slate-700">
                           {getDepartment(record)}
@@ -905,18 +869,15 @@ const StockOut = () => {
                         )}
                       </td>
 
-                      {/* ISSUED TO */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <UserRound className="w-4 h-4 text-slate-400" />
-
                           <span className="text-sm text-slate-700">
                             {getIssuedTo(record)}
                           </span>
                         </div>
                       </td>
 
-                      {/* QUANTITY */}
                       <td className="px-5 py-4">
                         <span className="text-sm font-semibold text-slate-800">
                           {getQuantity(record)}
@@ -927,16 +888,13 @@ const StockOut = () => {
                         </span>
                       </td>
 
-                      {/* DATE */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <CalendarDays className="w-4 h-4 text-slate-400" />
-
                           {getIssueDate(record)}
                         </div>
                       </td>
 
-                      {/* STATUS */}
                       <td className="px-5 py-4">
                         <span
                           className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
@@ -947,7 +905,6 @@ const StockOut = () => {
                         </span>
                       </td>
 
-                      {/* ACTION */}
                       <td className="px-5 py-4">
                         <div className="flex justify-end">
                           <button
@@ -1000,18 +957,13 @@ const StockOut = () => {
 
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <Info label="Department" value={getDepartment(record)} />
-
                     <Info label="Issued To" value={getIssuedTo(record)} />
-
                     <Info
                       label="Quantity"
                       value={`${getQuantity(record)} ${getUnit(record)}`}
                     />
-
                     <Info label="Issue Date" value={getIssueDate(record)} />
-
                     <Info label="Request No." value={getRequestNo(record)} />
-
                     <Info label="Category" value={getItemCategory(record)} />
                   </div>
 
@@ -1034,9 +986,7 @@ const StockOut = () => {
         )}
       </div>
 
-      {/* =====================================================
-          DETAILS MODAL
-      ====================================================== */}
+      {/* DETAILS MODAL */}
       {selectedRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -1066,7 +1016,6 @@ const StockOut = () => {
             </div>
 
             <div className="p-5 space-y-5">
-              {/* ITEM */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
@@ -1085,7 +1034,6 @@ const StockOut = () => {
                 </div>
               </div>
 
-              {/* STATUS */}
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-slate-400">Status</p>
@@ -1108,42 +1056,34 @@ const StockOut = () => {
                 </div>
               </div>
 
-              {/* DETAILS */}
               <div className="grid grid-cols-2 gap-4">
                 <Detail
                   label="Department"
                   value={getDepartment(selectedRecord)}
                 />
-
                 <Detail label="Issued To" value={getIssuedTo(selectedRecord)} />
-
                 <Detail
                   label="Quantity"
                   value={`${getQuantity(selectedRecord)} ${getUnit(
                     selectedRecord,
                   )}`}
                 />
-
                 <Detail
                   label="Request No."
                   value={getRequestNo(selectedRecord)}
                 />
-
                 <Detail
                   label="Inventory ID"
                   value={getId(selectedRecord.inventory)}
                 />
-
                 <Detail
                   label="Stock Out No."
                   value={getStockOutNo(selectedRecord)}
                 />
               </div>
 
-              {/* NOTES */}
               <div>
                 <p className="text-xs text-slate-400">Notes</p>
-
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
                   {getNotes(selectedRecord)}
                 </p>
@@ -1163,10 +1103,8 @@ const StockOut = () => {
         </div>
       )}
 
-      {/* =====================================================
-          ADD STOCK OUT MODAL
-      ====================================================== */}
-      {showAddModal && (
+      {/* ADD STOCK OUT MODAL — ADMIN ONLY */}
+      {isAdmin && showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
@@ -1174,7 +1112,6 @@ const StockOut = () => {
           />
 
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
-            {/* HEADER */}
             <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -1196,11 +1133,9 @@ const StockOut = () => {
               </button>
             </div>
 
-            {/* FORM */}
             <form onSubmit={handleSaveStockOut}>
               <div className="p-5 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* STOCK OUT NO */}
                   <FormField
                     label="Stock Out No."
                     value={formData.stockOutNo}
@@ -1214,7 +1149,6 @@ const StockOut = () => {
                     disabled={submitting}
                   />
 
-                  {/* ITEM */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Item
@@ -1236,7 +1170,6 @@ const StockOut = () => {
 
                       {inventoryItems.map((item) => {
                         const inventoryId = getInventoryId(item);
-
                         const available = getInventoryAvailable(item);
 
                         return (
@@ -1248,7 +1181,6 @@ const StockOut = () => {
                     </select>
                   </div>
 
-                  {/* QUANTITY */}
                   <FormField
                     label="Quantity"
                     type="number"
@@ -1266,7 +1198,6 @@ const StockOut = () => {
                     disabled={submitting}
                   />
 
-                  {/* DEPARTMENT */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Department
@@ -1299,7 +1230,6 @@ const StockOut = () => {
                     </select>
                   </div>
 
-                  {/* ISSUED TO */}
                   <FormField
                     label="Issued To"
                     value={formData.issuedTo}
@@ -1314,7 +1244,6 @@ const StockOut = () => {
                     disabled={submitting}
                   />
 
-                  {/* ISSUE DATE */}
                   <FormField
                     label="Issue Date"
                     type="date"
@@ -1329,7 +1258,6 @@ const StockOut = () => {
                     disabled={submitting}
                   />
 
-                  {/* REQUEST */}
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Request No.
@@ -1371,7 +1299,6 @@ const StockOut = () => {
                   </div>
                 </div>
 
-                {/* SELECTED ITEM INFO */}
                 {formData.inventory && (
                   <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-100">
                     {(() => {
@@ -1416,7 +1343,6 @@ const StockOut = () => {
                   </div>
                 )}
 
-                {/* NOTES */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Notes
@@ -1437,14 +1363,12 @@ const StockOut = () => {
                   />
                 </div>
 
-                {/* WARNING */}
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
                   Available stock is checked before submitting. The backend also
                   validates the available stock before reducing inventory.
                 </div>
               </div>
 
-              {/* FOOTER */}
               <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                 <button
                   type="button"
@@ -1461,7 +1385,6 @@ const StockOut = () => {
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <ArrowUpFromLine className="w-4 h-4" />
-
                   {submitting ? "Saving..." : "Save Stock Out"}
                 </button>
               </div>
@@ -1473,10 +1396,7 @@ const StockOut = () => {
   );
 };
 
-/* =====================================================
-   SUMMARY CARD
-===================================================== */
-
+/* SUMMARY CARD */
 const SummaryCard = ({
   title,
   value,
@@ -1490,7 +1410,6 @@ const SummaryCard = ({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm text-slate-500">{title}</p>
-
           <h2 className={`${valueClass} font-semibold text-slate-900 mt-2`}>
             {value}
           </h2>
@@ -1506,15 +1425,11 @@ const SummaryCard = ({
   );
 };
 
-/* =====================================================
-   INFO
-===================================================== */
-
+/* INFO */
 const Info = ({ label, value }) => {
   return (
     <div className="min-w-0">
       <p className="text-[11px] text-slate-400">{label}</p>
-
       <p
         className="text-xs text-slate-700 mt-1 truncate"
         title={String(value ?? "—")}
@@ -1525,15 +1440,11 @@ const Info = ({ label, value }) => {
   );
 };
 
-/* =====================================================
-   DETAIL
-===================================================== */
-
+/* DETAIL */
 const Detail = ({ label, value }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
       <p className="text-[11px] text-slate-400">{label}</p>
-
       <p className="text-sm font-medium text-slate-800 mt-1 break-words">
         {getSafeText(value)}
       </p>
@@ -1541,10 +1452,7 @@ const Detail = ({ label, value }) => {
   );
 };
 
-/* =====================================================
-   SAFE TEXT
-===================================================== */
-
+/* SAFE TEXT */
 const getSafeText = (value) => {
   if (value === null || value === undefined || value === "") {
     return "—";
@@ -1571,10 +1479,7 @@ const getSafeText = (value) => {
   return "—";
 };
 
-/* =====================================================
-   FORM FIELD
-===================================================== */
-
+/* FORM FIELD */
 const FormField = ({
   label,
   type = "text",
@@ -1590,7 +1495,6 @@ const FormField = ({
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
-
         {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
 
@@ -1609,10 +1513,7 @@ const FormField = ({
   );
 };
 
-/* =====================================================
-   EMPTY STATE
-===================================================== */
-
+/* EMPTY STATE */
 const EmptyState = () => {
   return (
     <div className="py-16 text-center">
