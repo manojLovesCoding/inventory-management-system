@@ -1,7 +1,74 @@
+
 import StockOut from "../models/StockOut.js";
 import Inventory from "../models/Inventory.js";
 import Department from "../models/Department.js";
 import ItemRequest from "../models/ItemRequest.js";
+import Return from "../models/Return.js";
+
+// ======================================================
+// HELPERS
+// ======================================================
+
+// Check whether the logged-in user is an admin.
+const isAdmin = (req) => {
+  return req.user?.role?.toLowerCase() === "admin";
+};
+
+// Get the department ID assigned to the logged-in user.
+const getAssignedDepartmentId = (req) => {
+  const department =
+    req.user?.department?._id ||
+    req.user?.department ||
+    req.user?.departmentId;
+
+  return department?.toString() || "";
+};
+
+// Get the ID from either a populated object or an ID.
+const getDocumentId = (value) => {
+  if (!value) return "";
+
+  if (typeof value === "object" && value._id) {
+    return value._id.toString();
+  }
+
+  return value.toString();
+};
+
+// Check whether a Stock Out belongs to the user's department.
+const belongsToUserDepartment = (stockOut, departmentId) => {
+  return (
+    getDocumentId(stockOut.department) ===
+    departmentId.toString()
+  );
+};
+
+// Check whether inventory belongs to the selected department.
+// If the Inventory model has a department field, validate it.
+const inventoryBelongsToDepartment = (
+  inventory,
+  departmentId
+) => {
+  if (!inventory.department) {
+    return true;
+  }
+
+  return (
+    getDocumentId(inventory.department) ===
+    departmentId.toString()
+  );
+};
+
+// Populate Stock Out response.
+const populateStockOut = (query) => {
+  return query
+    .populate("department", "name departmentName code")
+    .populate(
+      "inventory",
+      "itemCode name category unit quantity available minimumStock status department"
+    )
+    .populate("request", "requestNo status");
+};
 
 // ======================================================
 // GENERATE STOCK OUT NUMBER
@@ -35,7 +102,10 @@ const generateStockOutNo = async () => {
 // CALCULATE INVENTORY STATUS
 // ======================================================
 
-const calculateInventoryStatus = (available, minimumStock = 0) => {
+const calculateInventoryStatus = (
+  available,
+  minimumStock = 0
+) => {
   if (available <= 0) {
     return "Out of Stock";
   }
@@ -61,6 +131,23 @@ export const getStockOuts = async (req, res) => {
 
     const query = {};
 
+    // Department users can only see their own department.
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      query.department = departmentId;
+    } else if (department !== "All") {
+      // Admin can filter by any department.
+      query.department = department;
+    }
+
     if (search.trim()) {
       const regex = new RegExp(search.trim(), "i");
 
@@ -71,30 +158,15 @@ export const getStockOuts = async (req, res) => {
       ];
     }
 
-    if (department !== "All") {
-      query.department = department;
-    }
-
     if (inventory !== "All") {
       query.inventory = inventory;
     }
 
-    const stockOuts = await StockOut.find(query)
-      .populate(
-        "department",
-        "name departmentName code"
-      )
-      .populate(
-        "inventory",
-        "itemCode name category unit quantity available minimumStock status"
-      )
-      .populate(
-        "request",
-        "requestNo status"
-      )
-      .sort({ createdAt: -1 });
+    const stockOuts = await populateStockOut(
+      StockOut.find(query).sort({ createdAt: -1 })
+    );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: stockOuts.length,
       stockOuts,
@@ -102,7 +174,7 @@ export const getStockOuts = async (req, res) => {
   } catch (error) {
     console.error("Get stock out error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch stock out records",
     });
@@ -115,19 +187,9 @@ export const getStockOuts = async (req, res) => {
 
 export const getStockOutById = async (req, res) => {
   try {
-    const stockOut = await StockOut.findById(req.params.id)
-      .populate(
-        "department",
-        "name departmentName code"
-      )
-      .populate(
-        "inventory",
-        "itemCode name category unit quantity available minimumStock status"
-      )
-      .populate(
-        "request",
-        "requestNo status"
-      );
+    const stockOut = await populateStockOut(
+      StockOut.findById(req.params.id)
+    );
 
     if (!stockOut) {
       return res.status(404).json({
@@ -136,14 +198,29 @@ export const getStockOutById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    // Department users cannot view another department's record.
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (
+        !departmentId ||
+        !belongsToUserDepartment(stockOut, departmentId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to view this Stock Out record",
+        });
+      }
+    }
+
+    return res.status(200).json({
       success: true,
       stockOut,
     });
   } catch (error) {
     console.error("Get stock out error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch Stock Out record",
     });
@@ -167,11 +244,27 @@ export const createStockOut = async (req, res) => {
       notes,
     } = req.body;
 
+    // Department users must use their assigned department.
+    let finalDepartment = department;
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      finalDepartment = departmentId;
+    }
+
     // -------------------------
     // VALIDATION
     // -------------------------
 
-    if (!department) {
+    if (!finalDepartment) {
       return res.status(400).json({
         success: false,
         message: "Department is required",
@@ -215,8 +308,9 @@ export const createStockOut = async (req, res) => {
     // CHECK DEPARTMENT
     // -------------------------
 
-    const departmentExists =
-      await Department.findById(department);
+    const departmentExists = await Department.findById(
+      finalDepartment
+    );
 
     if (!departmentExists) {
       return res.status(404).json({
@@ -229,13 +323,24 @@ export const createStockOut = async (req, res) => {
     // CHECK INVENTORY
     // -------------------------
 
-    const inventoryItem =
-      await Inventory.findById(inventory);
+    const inventoryItem = await Inventory.findById(inventory);
 
     if (!inventoryItem) {
       return res.status(404).json({
         success: false,
         message: "Inventory item not found",
+      });
+    }
+
+    if (
+      !inventoryBelongsToDepartment(
+        inventoryItem,
+        finalDepartment
+      )
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "This inventory item does not belong to this department",
       });
     }
 
@@ -255,8 +360,7 @@ export const createStockOut = async (req, res) => {
     // -------------------------
 
     if (request) {
-      const requestExists =
-        await ItemRequest.findById(request);
+      const requestExists = await ItemRequest.findById(request);
 
       if (!requestExists) {
         return res.status(404).json({
@@ -270,18 +374,15 @@ export const createStockOut = async (req, res) => {
     // STOCK OUT NUMBER
     // -------------------------
 
-    let finalStockOutNo =
-      stockOutNo?.trim();
+    let finalStockOutNo = stockOutNo?.trim();
 
     if (!finalStockOutNo) {
-      finalStockOutNo =
-        await generateStockOutNo();
+      finalStockOutNo = await generateStockOutNo();
     }
 
-    const duplicate =
-      await StockOut.findOne({
-        stockOutNo: finalStockOutNo,
-      });
+    const duplicate = await StockOut.findOne({
+      stockOutNo: finalStockOutNo,
+    });
 
     if (duplicate) {
       return res.status(409).json({
@@ -296,7 +397,7 @@ export const createStockOut = async (req, res) => {
 
     const stockOut = await StockOut.create({
       stockOutNo: finalStockOutNo,
-      department,
+      department: finalDepartment,
       inventory,
       quantity: parsedQuantity,
       issuedDate,
@@ -319,25 +420,14 @@ export const createStockOut = async (req, res) => {
     await inventoryItem.save();
 
     // -------------------------
-    // POPULATE RESPONSE
+    // RESPONSE
     // -------------------------
 
-    const populatedStockOut =
-      await StockOut.findById(stockOut._id)
-        .populate(
-          "department",
-          "name departmentName code"
-        )
-        .populate(
-          "inventory",
-          "itemCode name category unit quantity available minimumStock status"
-        )
-        .populate(
-          "request",
-          "requestNo status"
-        );
+    const populatedStockOut = await populateStockOut(
+      StockOut.findById(stockOut._id)
+    );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Stock Out created successfully",
       stockOut: populatedStockOut,
@@ -345,11 +435,9 @@ export const createStockOut = async (req, res) => {
   } catch (error) {
     console.error("Create stock out error:", error);
 
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to create Stock Out",
+      message: error.message || "Failed to create Stock Out",
     });
   }
 };
@@ -360,13 +448,46 @@ export const createStockOut = async (req, res) => {
 
 export const updateStockOut = async (req, res) => {
   try {
-    const stockOut =
-      await StockOut.findById(req.params.id);
+    const stockOut = await StockOut.findById(req.params.id);
 
     if (!stockOut) {
       return res.status(404).json({
         success: false,
         message: "Stock Out record not found",
+      });
+    }
+
+    // -------------------------
+    // CHECK DEPARTMENT ACCESS
+    // -------------------------
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (
+        !departmentId ||
+        !belongsToUserDepartment(stockOut, departmentId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to update this Stock Out record",
+        });
+      }
+    }
+
+    // -------------------------
+    // PREVENT UPDATE IF RETURN EXISTS
+    // -------------------------
+
+    const linkedReturn = await Return.findOne({
+      stockOut: stockOut._id,
+    });
+
+    if (linkedReturn) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This Stock Out record cannot be updated because a return is already linked to it. Please manage the return record first.",
       });
     }
 
@@ -381,7 +502,14 @@ export const updateStockOut = async (req, res) => {
       notes,
     } = req.body;
 
-    if (!department) {
+    // Department users cannot change their assigned department.
+    let finalDepartment = department;
+
+    if (!isAdmin(req)) {
+      finalDepartment = getAssignedDepartmentId(req);
+    }
+
+    if (!finalDepartment) {
       return res.status(400).json({
         success: false,
         message: "Department is required",
@@ -425,8 +553,9 @@ export const updateStockOut = async (req, res) => {
     // CHECK DEPARTMENT
     // -------------------------
 
-    const departmentExists =
-      await Department.findById(department);
+    const departmentExists = await Department.findById(
+      finalDepartment
+    );
 
     if (!departmentExists) {
       return res.status(404).json({
@@ -440,8 +569,7 @@ export const updateStockOut = async (req, res) => {
     // -------------------------
 
     if (request) {
-      const requestExists =
-        await ItemRequest.findById(request);
+      const requestExists = await ItemRequest.findById(request);
 
       if (!requestExists) {
         return res.status(404).json({
@@ -456,14 +584,12 @@ export const updateStockOut = async (req, res) => {
     // -------------------------
 
     const finalStockOutNo =
-      stockOutNo?.trim() ||
-      stockOut.stockOutNo;
+      stockOutNo?.trim() || stockOut.stockOutNo;
 
-    const duplicate =
-      await StockOut.findOne({
-        stockOutNo: finalStockOutNo,
-        _id: { $ne: stockOut._id },
-      });
+    const duplicate = await StockOut.findOne({
+      stockOutNo: finalStockOutNo,
+      _id: { $ne: stockOut._id },
+    });
 
     if (duplicate) {
       return res.status(409).json({
@@ -473,38 +599,14 @@ export const updateStockOut = async (req, res) => {
     }
 
     // -------------------------
-    // RESTORE OLD INVENTORY
+    // GET OLD AND NEW INVENTORY
     // -------------------------
 
-    const oldInventory =
-      await Inventory.findById(stockOut.inventory);
+    const oldInventory = await Inventory.findById(
+      stockOut.inventory
+    );
 
-    if (oldInventory) {
-      oldInventory.available += stockOut.quantity;
-
-      if (
-        oldInventory.available >
-        oldInventory.quantity
-      ) {
-        oldInventory.available =
-          oldInventory.quantity;
-      }
-
-      oldInventory.status =
-        calculateInventoryStatus(
-          oldInventory.available,
-          oldInventory.minimumStock
-        );
-
-      await oldInventory.save();
-    }
-
-    // -------------------------
-    // GET NEW INVENTORY
-    // -------------------------
-
-    const newInventory =
-      await Inventory.findById(inventory);
+    const newInventory = await Inventory.findById(inventory);
 
     if (!newInventory) {
       return res.status(404).json({
@@ -513,25 +615,50 @@ export const updateStockOut = async (req, res) => {
       });
     }
 
-    // If changing inventory, stock from old item
-    // has already been restored.
-
     if (
-      oldInventory &&
-      oldInventory._id.toString() ===
-        newInventory._id.toString()
+      !inventoryBelongsToDepartment(
+        newInventory,
+        finalDepartment
+      )
     ) {
-      // Same inventory item has already had
-      // the old quantity restored.
+      return res.status(403).json({
+        success: false,
+        message: "This inventory item does not belong to this department",
+      });
     }
 
-    if (
-      parsedQuantity >
-      newInventory.available
-    ) {
+    if (!oldInventory) {
+      return res.status(404).json({
+        success: false,
+        message: "Original inventory item not found",
+      });
+    }
+
+    // -------------------------
+    // RESTORE OLD INVENTORY
+    // -------------------------
+
+    oldInventory.available += stockOut.quantity;
+
+    if (oldInventory.available > oldInventory.quantity) {
+      oldInventory.available = oldInventory.quantity;
+    }
+
+    // -------------------------
+    // CHECK NEW AVAILABLE STOCK
+    // -------------------------
+
+    // If it is the same inventory item, the old issued
+    // quantity has already been restored in memory.
+    const availableForNewIssue =
+      oldInventory._id.toString() === newInventory._id.toString()
+        ? oldInventory.available
+        : newInventory.available;
+
+    if (parsedQuantity > availableForNewIssue) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient stock. Available quantity is ${newInventory.available}`,
+        message: `Insufficient stock. Available quantity is ${availableForNewIssue}`,
       });
     }
 
@@ -539,44 +666,49 @@ export const updateStockOut = async (req, res) => {
     // APPLY NEW STOCK OUT
     // -------------------------
 
-    newInventory.available -=
-      parsedQuantity;
+    if (
+      oldInventory._id.toString() === newInventory._id.toString()
+    ) {
+      oldInventory.available -= parsedQuantity;
 
-    newInventory.status =
-      calculateInventoryStatus(
+      oldInventory.status = calculateInventoryStatus(
+        oldInventory.available,
+        oldInventory.minimumStock
+      );
+
+      await oldInventory.save();
+    } else {
+      // Save restored stock for the old item.
+      oldInventory.status = calculateInventoryStatus(
+        oldInventory.available,
+        oldInventory.minimumStock
+      );
+
+      await oldInventory.save();
+
+      // Deduct stock from the new item.
+      newInventory.available -= parsedQuantity;
+
+      newInventory.status = calculateInventoryStatus(
         newInventory.available,
         newInventory.minimumStock
       );
 
-    await newInventory.save();
+      await newInventory.save();
+    }
 
     // -------------------------
     // UPDATE RECORD
     // -------------------------
 
-    stockOut.stockOutNo =
-      finalStockOutNo;
-
-    stockOut.department =
-      department;
-
-    stockOut.inventory =
-      inventory;
-
-    stockOut.quantity =
-      parsedQuantity;
-
-    stockOut.issuedDate =
-      issuedDate;
-
-    stockOut.issuedTo =
-      issuedTo.trim();
-
-    stockOut.request =
-      request || null;
-
-    stockOut.notes =
-      notes?.trim() || "";
+    stockOut.stockOutNo = finalStockOutNo;
+    stockOut.department = finalDepartment;
+    stockOut.inventory = inventory;
+    stockOut.quantity = parsedQuantity;
+    stockOut.issuedDate = issuedDate;
+    stockOut.issuedTo = issuedTo.trim();
+    stockOut.request = request || null;
+    stockOut.notes = notes?.trim() || "";
 
     await stockOut.save();
 
@@ -584,51 +716,41 @@ export const updateStockOut = async (req, res) => {
     // RESPONSE
     // -------------------------
 
-    const updatedStockOut =
-      await StockOut.findById(
-        stockOut._id
-      )
-        .populate(
-          "department",
-          "name departmentName code"
-        )
-        .populate(
-          "inventory",
-          "itemCode name category unit quantity available minimumStock status"
-        )
-        .populate(
-          "request",
-          "requestNo status"
-        );
+    const updatedStockOut = await populateStockOut(
+      StockOut.findById(stockOut._id)
+    );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Stock Out updated successfully",
       stockOut: updatedStockOut,
     });
   } catch (error) {
-    console.error(
-      "Update stock out error:",
-      error
-    );
+    console.error("Update stock out error:", error);
 
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to update Stock Out",
+      message: error.message || "Failed to update Stock Out",
     });
   }
 };
 
 // ======================================================
 // DELETE STOCK OUT
+// ADMIN ONLY
 // ======================================================
 
 export const deleteStockOut = async (req, res) => {
   try {
-    const stockOut =
-      await StockOut.findById(req.params.id);
+    // Only admin can delete Stock Out records.
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can delete Stock Out records",
+      });
+    }
+
+    const stockOut = await StockOut.findById(req.params.id);
 
     if (!stockOut) {
       return res.status(404).json({
@@ -638,31 +760,40 @@ export const deleteStockOut = async (req, res) => {
     }
 
     // -------------------------
+    // PREVENT DELETE IF RETURN EXISTS
+    // -------------------------
+
+    const linkedReturn = await Return.findOne({
+      stockOut: stockOut._id,
+    });
+
+    if (linkedReturn) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This Stock Out record cannot be deleted because a return is already linked to it. Please manage the return record first.",
+      });
+    }
+
+    // -------------------------
     // RESTORE INVENTORY
     // -------------------------
 
-    const inventory =
-      await Inventory.findById(
-        stockOut.inventory
-      );
+    const inventory = await Inventory.findById(
+      stockOut.inventory
+    );
 
     if (inventory) {
-      inventory.available +=
-        stockOut.quantity;
+      inventory.available += stockOut.quantity;
 
-      if (
-        inventory.available >
-        inventory.quantity
-      ) {
-        inventory.available =
-          inventory.quantity;
+      if (inventory.available > inventory.quantity) {
+        inventory.available = inventory.quantity;
       }
 
-      inventory.status =
-        calculateInventoryStatus(
-          inventory.available,
-          inventory.minimumStock
-        );
+      inventory.status = calculateInventoryStatus(
+        inventory.available,
+        inventory.minimumStock
+      );
 
       await inventory.save();
     }
@@ -671,25 +802,18 @@ export const deleteStockOut = async (req, res) => {
     // DELETE
     // -------------------------
 
-    await StockOut.findByIdAndDelete(
-      req.params.id
-    );
+    await StockOut.findByIdAndDelete(req.params.id);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message:
-        "Stock Out deleted successfully",
+      message: "Stock Out deleted successfully",
     });
   } catch (error) {
-    console.error(
-      "Delete stock out error:",
-      error
-    );
+    console.error("Delete stock out error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message:
-        "Failed to delete Stock Out",
+      message: "Failed to delete Stock Out",
     });
   }
 };

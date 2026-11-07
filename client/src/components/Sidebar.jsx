@@ -1,5 +1,7 @@
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -32,12 +34,16 @@ const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [openMenus, setOpenMenus] = useState({
-    inventory: true,
-    stock: true,
-    procurement: true,
+    operations: true,
     college: true,
     administration: true,
   });
+
+  // Get user role
+  const userRole = user?.role?.toLowerCase();
+
+  // Check whether logged-in user is admin
+  const isAdmin = userRole === "admin";
 
   // Close mobile sidebar whenever route changes
   useEffect(() => {
@@ -51,15 +57,18 @@ const Sidebar = () => {
     }));
   };
 
+  // Check active route
   const isActive = (href) => {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
+  // Logout
   const handleLogout = () => {
     logout();
     window.location.href = "/login";
   };
 
+  // Menu groups
   const menuGroups = [
     {
       title: "Main",
@@ -72,6 +81,7 @@ const Sidebar = () => {
       ],
     },
 
+    // College section
     {
       title: "College",
       key: "college",
@@ -84,20 +94,16 @@ const Sidebar = () => {
       ],
     },
 
+    // Operational pages
+    // Available to both admin and department users
     {
-      title: "Administration",
-      key: "administration",
-      roles: ["admin"], // Restricted to admin role only
+      title: "Inventory & Stock",
+      key: "operations",
       items: [
         {
           name: "Items",
           href: "/inventory",
           icon: Package,
-        },
-        {
-          name: "Categories",
-          href: "/categories",
-          icon: Tags,
         },
         {
           name: "Stock In",
@@ -123,6 +129,20 @@ const Sidebar = () => {
           name: "Purchases",
           href: "/purchases",
           icon: ShoppingCart,
+        },
+      ],
+    },
+
+    // Admin-only pages
+    {
+      title: "Administration",
+      key: "administration",
+      roles: ["admin"],
+      items: [
+        {
+          name: "Categories",
+          href: "/categories",
+          icon: Tags,
         },
         {
           name: "Suppliers",
@@ -155,18 +175,14 @@ const Sidebar = () => {
 
   const sidebarContent = (
     <>
-      {/* =====================================================
-          HEADER
-      ====================================================== */}
+      {/* HEADER */}
       <div className="px-5 py-5 border-b border-white/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            {/* Logo */}
             <div className="w-9 h-9 rounded-lg bg-indigo-500 flex items-center justify-center shrink-0 shadow-sm">
               <Boxes className="w-5 h-5 text-white" />
             </div>
 
-            {/* College Name */}
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white leading-5">
                 Government First Grade College
@@ -190,45 +206,51 @@ const Sidebar = () => {
         </div>
       </div>
 
-      {/* =====================================================
-          USER CARD
-      ====================================================== */}
+      {/* USER CARD */}
       <div className="mx-3 mt-4 mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
         <div className="flex items-center gap-3">
-          {/* Avatar */}
           <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center ring-1 ring-white/10 shrink-0">
             <span className="text-slate-300 text-xs font-semibold">
               {user?.name?.charAt(0)?.toUpperCase() || "A"}
             </span>
           </div>
 
-          {/* User Info */}
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-slate-200 truncate">
               {user?.name || "Administrator"}
             </p>
 
             <p className="text-[11px] text-slate-500 truncate capitalize">
-              {user?.role?.toLowerCase() || "administrator"}
+              {userRole || "administrator"}
             </p>
+
+            {/* Show assigned department for department users */}
+            {!isAdmin && user?.department && (
+              <p className="text-[10px] text-indigo-300 truncate mt-1">
+                {typeof user.department === "object"
+                  ? user.department.name || user.department.departmentName
+                  : "Department User"}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* =====================================================
-          NAVIGATION
-      ====================================================== */}
+      {/* NAVIGATION */}
       <div className="flex-1 px-3 pb-4 overflow-y-auto scrollbar-thin">
         {menuGroups
           .filter((group) => {
-            // If the group specifies allowed roles, check if the current user matches
+            // Show restricted groups only to permitted roles
             if (group.roles) {
-              return group.roles.includes(user?.role?.toLowerCase());
+              return group.roles.includes(userRole);
             }
+
             return true;
           })
           .map((group) => {
-            const isGroupOpen = group.key ? openMenus[group.key] : true;
+            const isGroupOpen = group.key
+              ? openMenus[group.key]
+              : true;
 
             return (
               <div key={group.title} className="mb-5">
@@ -286,7 +308,9 @@ const Sidebar = () => {
                           />
 
                           {/* Name */}
-                          <span className="flex-1 truncate">{item.name}</span>
+                          <span className="flex-1 truncate">
+                            {item.name}
+                          </span>
 
                           {/* Active Arrow */}
                           {active && (
@@ -302,9 +326,7 @@ const Sidebar = () => {
           })}
       </div>
 
-      {/* =====================================================
-          LOGOUT
-      ====================================================== */}
+      {/* LOGOUT */}
       <div className="p-3 border-t border-white/10">
         <button
           type="button"
@@ -321,9 +343,7 @@ const Sidebar = () => {
 
   return (
     <>
-      {/* =====================================================
-          MOBILE MENU BUTTON
-      ====================================================== */}
+      {/* MOBILE MENU BUTTON */}
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
@@ -333,9 +353,7 @@ const Sidebar = () => {
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* =====================================================
-          MOBILE OVERLAY
-      ====================================================== */}
+      {/* MOBILE OVERLAY */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
@@ -343,16 +361,12 @@ const Sidebar = () => {
         />
       )}
 
-      {/* =====================================================
-          DESKTOP SIDEBAR
-      ====================================================== */}
+      {/* DESKTOP SIDEBAR */}
       <aside className="hidden lg:flex flex-col h-screen w-64 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white shrink-0 border-r border-white/10">
         {sidebarContent}
       </aside>
 
-      {/* =====================================================
-          MOBILE SIDEBAR
-      ====================================================== */}
+      {/* MOBILE SIDEBAR */}
       <aside
         className={`lg:hidden fixed inset-y-0 left-0 w-72 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 text-white z-50 flex flex-col transform transition-transform duration-300 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"

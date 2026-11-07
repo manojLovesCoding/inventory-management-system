@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import {
+import React, { useEffect, useMemo, useState } from "react";
+import  {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -25,28 +25,22 @@ const purchaseStatuses = [
   "Cancelled",
 ];
 
-const getToday = () => {
-  return new Date().toISOString().split("T")[0];
-};
+const getToday = () => new Date().toISOString().split("T")[0];
 
-const getErrorMessage = (error, fallback) => {
-  return error?.response?.data?.message || error?.message || fallback;
-};
+const getErrorMessage = (error, fallback) =>
+  error?.response?.data?.message || error?.message || fallback;
 
-const formatCurrency = (value) => {
-  return `₹${Number(value || 0).toLocaleString("en-IN", {
+const formatCurrency = (value) =>
+  `₹${Number(value || 0).toLocaleString("en-IN", {
     maximumFractionDigits: 2,
   })}`;
-};
 
 const formatDate = (value) => {
   if (!value) return "-";
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -56,9 +50,7 @@ const formatDate = (value) => {
 };
 
 const getSupplierName = (purchase) => {
-  if (!purchase?.supplier) {
-    return "-";
-  }
+  if (!purchase?.supplier) return "-";
 
   if (typeof purchase.supplier === "string") {
     return purchase.supplier;
@@ -73,20 +65,31 @@ const getSupplierName = (purchase) => {
   );
 };
 
+const getDepartmentName = (purchase) => {
+  if (!purchase?.department) return "-";
+
+  if (typeof purchase.department === "string") {
+    return purchase.department;
+  }
+
+  return (
+    purchase.department.name ||
+    purchase.department.departmentName ||
+    purchase.department._id ||
+    "-"
+  );
+};
+
 const getStatusClasses = (status) => {
   switch (status) {
     case "Received":
       return "bg-emerald-50 text-emerald-700 border-emerald-100";
-
     case "Ordered":
       return "bg-blue-50 text-blue-700 border-blue-100";
-
     case "Partially Received":
       return "bg-amber-50 text-amber-700 border-amber-100";
-
     case "Cancelled":
       return "bg-rose-50 text-rose-700 border-rose-100";
-
     case "Draft":
     default:
       return "bg-slate-50 text-slate-600 border-slate-200";
@@ -105,7 +108,6 @@ const Purchases = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
 
   // =====================================================
@@ -113,12 +115,16 @@ const Purchases = () => {
   // =====================================================
 
   const [purchaseNo, setPurchaseNo] = useState("");
-
   const [purchaseDate, setPurchaseDate] = useState(getToday());
 
+  // Department state
+  const [departments, setDepartments] = useState([]);
+  const [departmentLoading, setDepartmentLoading] = useState(true);
+  const [departmentId, setDepartmentId] = useState("");
+
+  // Supplier state
   const [suppliers, setSuppliers] = useState([]);
   const [supplierLoading, setSupplierLoading] = useState(true);
-
   const [supplierId, setSupplierId] = useState("");
 
   const [invoiceNo, setInvoiceNo] = useState("");
@@ -126,7 +132,6 @@ const Purchases = () => {
   const [status, setStatus] = useState("Draft");
   const [orderedBy, setOrderedBy] = useState("");
   const [notes, setNotes] = useState("");
-
   const [items, setItems] = useState([]);
 
   // =====================================================
@@ -181,6 +186,33 @@ const Purchases = () => {
   };
 
   // =====================================================
+  // LOAD DEPARTMENTS
+  // =====================================================
+
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        setDepartmentLoading(true);
+
+        const response = await api.get("/departments");
+
+        const departmentData =
+          response?.data?.departments || response?.data?.data || [];
+
+        setDepartments(Array.isArray(departmentData) ? departmentData : []);
+      } catch (error) {
+        console.error("Fetch departments error:", error);
+
+        toast.error(getErrorMessage(error, "Failed to load departments"));
+      } finally {
+        setDepartmentLoading(false);
+      }
+    };
+
+    fetchDepartments();
+  }, []);
+
+  // =====================================================
   // LOAD SUPPLIERS
   // =====================================================
 
@@ -216,8 +248,12 @@ const Purchases = () => {
   }, []);
 
   // =====================================================
-  // SELECTED SUPPLIER
+  // SELECTED DEPARTMENT AND SUPPLIER
   // =====================================================
+
+  const selectedDepartment = departments.find(
+    (department) => department._id === departmentId,
+  );
 
   const selectedSupplier = suppliers.find(
     (supplier) => supplier._id === supplierId,
@@ -227,28 +263,32 @@ const Purchases = () => {
   // PURCHASE TOTALS
   // =====================================================
 
-  const subtotal = useMemo(() => {
-    return items.reduce(
-      (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
-      0,
-    );
-  }, [items]);
+  const subtotal = useMemo(
+    () =>
+      items.reduce(
+        (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
+        0,
+      ),
+    [items],
+  );
 
-  const totalDiscount = useMemo(() => {
-    return items.reduce((sum, item) => sum + Number(item.discount || 0), 0);
-  }, [items]);
+  const totalDiscount = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.discount || 0), 0),
+    [items],
+  );
 
-  const totalTax = useMemo(() => {
-    return items.reduce((sum, item) => sum + Number(item.taxAmount || 0), 0);
-  }, [items]);
+  const totalTax = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.taxAmount || 0), 0),
+    [items],
+  );
 
   const taxableAmount = Math.max(0, subtotal - totalDiscount);
-
   const grandTotal = taxableAmount + totalTax;
 
-  const totalQuantity = useMemo(() => {
-    return items.reduce((sum, item) => sum + Number(item.quantity), 0);
-  }, [items]);
+  const totalQuantity = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.quantity), 0),
+    [items],
+  );
 
   // =====================================================
   // FILTER PURCHASE ORDERS
@@ -321,10 +361,6 @@ const Purchases = () => {
   const addItem = (e) => {
     e.preventDefault();
 
-    // -------------------------
-    // BASIC ITEM VALIDATION
-    // -------------------------
-
     if (!itemId.trim()) {
       toast.error("Please enter item ID");
       return;
@@ -355,18 +391,10 @@ const Purchases = () => {
       return;
     }
 
-    // -------------------------
-    // NUMERIC VALUES
-    // -------------------------
-
     const numericQuantity = Number(quantity);
     const numericUnitPrice = Number(unitPrice);
     const numericTaxRate = Number(taxRate) || 0;
     const numericDiscount = Number(discount) || 0;
-
-    // -------------------------
-    // NUMERIC VALIDATION
-    // -------------------------
 
     if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) {
       toast.error("Please enter a valid quantity");
@@ -392,10 +420,6 @@ const Purchases = () => {
       return;
     }
 
-    // -------------------------
-    // DUPLICATE ITEM CHECK
-    // -------------------------
-
     const normalizedItemId = itemId.trim();
 
     const existingItem = items.find(
@@ -409,10 +433,6 @@ const Purchases = () => {
       return;
     }
 
-    // -------------------------
-    // CALCULATE ITEM TOTAL
-    // -------------------------
-
     const lineSubtotal = numericQuantity * numericUnitPrice;
 
     if (numericDiscount > lineSubtotal) {
@@ -421,14 +441,8 @@ const Purchases = () => {
     }
 
     const taxableValue = lineSubtotal - numericDiscount;
-
     const taxAmount = taxableValue * (numericTaxRate / 100);
-
     const lineTotal = taxableValue + taxAmount;
-
-    // -------------------------
-    // ADD ITEM
-    // -------------------------
 
     setItems((prev) => [
       ...prev,
@@ -447,7 +461,6 @@ const Purchases = () => {
     ]);
 
     toast.success("Purchase item added");
-
     closeItemModal();
   };
 
@@ -468,9 +481,7 @@ const Purchases = () => {
   const updateItem = (itemId, field, value) => {
     setItems((prev) =>
       prev.map((item) => {
-        if (item.itemId !== itemId) {
-          return item;
-        }
+        if (item.itemId !== itemId) return item;
 
         let numericValue = Number(value);
 
@@ -497,7 +508,6 @@ const Purchases = () => {
         );
 
         const taxableValue = lineSubtotal - itemDiscount;
-
         const taxAmount = taxableValue * (safeTaxRate / 100);
 
         return {
@@ -518,6 +528,7 @@ const Purchases = () => {
   const resetForm = () => {
     setPurchaseNo("");
     setPurchaseDate(getToday());
+    setDepartmentId("");
     setSupplierId("");
     setInvoiceNo("");
     setInvoiceDate("");
@@ -533,6 +544,16 @@ const Purchases = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!departmentId) {
+      toast.error("Please select a department");
+      return;
+    }
+
+    if (!selectedDepartment) {
+      toast.error("Selected department was not found");
+      return;
+    }
 
     if (!purchaseDate) {
       toast.error("Please select purchase date");
@@ -563,24 +584,19 @@ const Purchases = () => {
       setIsSubmitting(true);
 
       const purchaseData = {
-        ...(purchaseNo.trim()
-          ? {
-              purchaseNo: purchaseNo.trim(),
-            }
-          : {}),
+        ...(purchaseNo.trim() ? { purchaseNo: purchaseNo.trim() } : {}),
 
         purchaseDate,
+
+        // Send the selected department's MongoDB ObjectId
+        department: selectedDepartment._id,
 
         supplier: selectedSupplier._id,
 
         invoiceNo: invoiceNo.trim(),
-
         invoiceDate: invoiceDate || null,
-
         status,
-
         orderedBy: orderedBy.trim(),
-
         notes: notes.trim(),
 
         items: items.map((item) => ({
@@ -607,13 +623,10 @@ const Purchases = () => {
 
       console.log("Created purchase:", createdPurchase);
 
-      // Refresh purchase list
       await fetchPurchases(false);
 
-      // Reset form
       resetForm();
 
-      // Keep backend-generated PO number visible
       if (createdPurchase?.purchaseNo) {
         setPurchaseNo(createdPurchase.purchaseNo);
       }
@@ -645,9 +658,7 @@ const Purchases = () => {
   return (
     <>
       <div className="space-y-6">
-        {/* =================================================
-            HEADER
-        ================================================== */}
+        {/* HEADER */}
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -673,9 +684,7 @@ const Purchases = () => {
           </div>
         </div>
 
-        {/* =================================================
-            PURCHASE ORDERS LIST
-        ================================================== */}
+        {/* PURCHASE ORDERS LIST */}
 
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="px-5 py-4 border-b border-slate-100">
@@ -822,6 +831,7 @@ const Purchases = () => {
                     </tr>
                   </thead>
 
+                  {/* Only ONE tbody. All mapped rows are inside it. */}
                   <tbody className="divide-y divide-slate-100">
                     {filteredPurchases.map((purchase) => {
                       const purchaseId =
@@ -837,8 +847,8 @@ const Purchases = () => {
                         0;
 
                       return (
-                        <>
-                          <tr key={purchaseId} className="hover:bg-slate-50/60">
+                        <React.Fragment key={purchaseId}>
+                          <tr className="hover:bg-slate-50/60">
                             <td className="px-5 py-4">
                               <div className="flex items-center gap-3">
                                 <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
@@ -911,7 +921,7 @@ const Purchases = () => {
                           </tr>
 
                           {isExpanded && (
-                            <tr key={`${purchaseId}-details`}>
+                            <tr>
                               <td
                                 colSpan="7"
                                 className="px-5 py-4 bg-slate-50/70"
@@ -920,7 +930,7 @@ const Purchases = () => {
                               </td>
                             </tr>
                           )}
-                        </>
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -1049,13 +1059,9 @@ const Purchases = () => {
           )}
         </section>
 
-        {/* =================================================
-            CREATE PURCHASE FORM
-        ================================================== */}
+        {/* CREATE PURCHASE FORM */}
 
         <form onSubmit={handleSubmit}>
-          {/* PURCHASE INFORMATION */}
-
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
             <div className="px-5 py-4 border-b border-slate-100">
               <h2 className="text-sm font-semibold text-slate-800">
@@ -1106,6 +1112,39 @@ const Purchases = () => {
                     className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
                   />
                 </div>
+              </div>
+
+              {/* DEPARTMENT */}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Department
+                  <span className="text-rose-500 ml-1">*</span>
+                </label>
+
+                <select
+                  value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value)}
+                  disabled={departmentLoading}
+                  required
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {departmentLoading
+                      ? "Loading departments..."
+                      : departments.length === 0
+                        ? "No departments found"
+                        : "Select department"}
+                  </option>
+
+                  {departments.map((department) => (
+                    <option key={department._id} value={department._id}>
+                      {department.name ||
+                        department.departmentName ||
+                        department._id}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* SUPPLIER */}
@@ -1207,6 +1246,20 @@ const Purchases = () => {
               </div>
             </div>
 
+            {/* SELECTED DEPARTMENT DETAILS */}
+
+            {selectedDepartment && (
+              <div className="mx-5 mb-5 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+                <p className="text-sm font-semibold text-indigo-900">
+                  {selectedDepartment.name || selectedDepartment.departmentName}
+                </p>
+
+                <p className="text-[11px] text-indigo-600 mt-0.5">
+                  Department selected for this purchase order.
+                </p>
+              </div>
+            )}
+
             {/* SUPPLIER DETAILS */}
 
             {selectedSupplier && (
@@ -1231,9 +1284,7 @@ const Purchases = () => {
             )}
           </section>
 
-          {/* =================================================
-              ITEMS
-          ================================================== */}
+          {/* PURCHASE ITEMS */}
 
           <section className="mt-6 bg-white border border-slate-200 rounded-xl shadow-sm">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
@@ -1660,7 +1711,12 @@ const Purchases = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting || supplierLoading}
+              disabled={
+                isSubmitting ||
+                supplierLoading ||
+                departmentLoading ||
+                departments.length === 0
+              }
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
@@ -1671,9 +1727,7 @@ const Purchases = () => {
         </form>
       </div>
 
-      {/* =================================================
-          ADD ITEM MODAL
-      ================================================== */}
+      {/* ADD ITEM MODAL */}
 
       {showItemModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -1839,13 +1893,9 @@ const Purchases = () => {
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
                     >
                       <option value="0">0%</option>
-
                       <option value="5">5%</option>
-
                       <option value="12">12%</option>
-
                       <option value="18">18%</option>
-
                       <option value="28">28%</option>
                     </select>
                   </div>
@@ -1996,6 +2046,16 @@ const PurchaseDetails = ({ purchase }) => {
 
           <p className="text-xs font-semibold text-slate-700 mt-1">
             {getSupplierName(purchase)}
+          </p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white border border-slate-200">
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">
+            Department
+          </p>
+
+          <p className="text-xs font-semibold text-slate-700 mt-1">
+            {getDepartmentName(purchase)}
           </p>
         </div>
       </div>

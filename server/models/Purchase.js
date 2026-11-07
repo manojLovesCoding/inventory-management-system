@@ -87,6 +87,12 @@ const purchaseSchema = new mongoose.Schema(
       required: true,
     },
 
+    department: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Department",
+  required: true,
+},
+
     invoiceNo: {
       type: String,
       trim: true,

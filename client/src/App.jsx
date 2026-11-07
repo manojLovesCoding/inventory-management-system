@@ -1,3 +1,4 @@
+
 import { Toaster } from "react-hot-toast";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
@@ -28,6 +29,10 @@ import Settings from "./pages/Settings";
 import { useAuth } from "./context/AuthContext";
 import Loading from "./components/Loading";
 
+// ==========================================
+// PROTECTED ROUTES
+// All authenticated users can access these
+// ==========================================
 const ProtectedRoutes = () => {
   const { user, loading } = useAuth();
 
@@ -42,18 +47,34 @@ const ProtectedRoutes = () => {
   return <Layout />;
 };
 
+// ==========================================
+// ADMIN ONLY ROUTES
+// Only admin can access these pages
+// ==========================================
 const AdminRoute = () => {
-  // Retrieve the logged-in user from localStorage, Context, or Redux
-  const user = JSON.parse(localStorage.getItem("user"));
+  const { user, loading } = useAuth();
 
-  // Check if user is authenticated and has the 'admin' role
-  if (!user || user.role !== "admin") {
+  if (loading) {
+    return <Loading />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const userRole = user.role?.toLowerCase();
+
+  if (userRole !== "admin") {
     return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;
 };
 
+// ==========================================
+// PUBLIC ROUTES
+// Logged-in users cannot access login pages
+// ==========================================
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
 
@@ -68,6 +89,9 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
+// ==========================================
+// MAIN APP
+// ==========================================
 const App = () => {
   return (
     <>
@@ -79,9 +103,9 @@ const App = () => {
       />
 
       <Routes>
-        {/* =========================
+        {/* ==================================
             PUBLIC ROUTES
-        ========================== */}
+        ================================== */}
 
         <Route
           path="/login"
@@ -131,49 +155,62 @@ const App = () => {
           }
         />
 
-        {/* =========================
+        {/* ==================================
             PROTECTED APPLICATION
-        ========================== */}
+            All authenticated users
+        ================================== */}
 
         <Route element={<ProtectedRoutes />}>
+          {/* Main */}
           <Route path="/dashboard" element={<Dashboard />} />
+
+          {/* College */}
           <Route path="/requests" element={<Requests />} />
 
-          {/* Admin Only Routes */}
+          {/* Inventory */}
+          <Route path="/inventory" element={<Inventory />} />
+
+          {/* Stock Operations */}
+          <Route path="/stock/in" element={<StockIn />} />
+          <Route path="/stock/out" element={<StockOut />} />
+          <Route path="/stock/returns" element={<Returns />} />
+          <Route path="/stock/adjustments" element={<Adjustments />} />
+
+          {/* Procurement */}
+          <Route path="/purchases" element={<Purchases />} />
+
+          {/* ==================================
+              ADMIN ONLY PAGES
+          ================================== */}
+
           <Route element={<AdminRoute />}>
-            {/* Inventory */}
-            <Route path="/inventory" element={<Inventory />} />
             <Route path="/categories" element={<Categories />} />
 
-            {/* Stock */}
-            <Route path="/stock/in" element={<StockIn />} />
-            <Route path="/stock/out" element={<StockOut />} />
-            <Route path="/stock/returns" element={<Returns />} />
-            <Route path="/stock/adjustments" element={<Adjustments />} />
-
-            {/* Procurement */}
-            <Route path="/purchases" element={<Purchases />} />
             <Route path="/suppliers" element={<Suppliers />} />
 
-            {/* College */}
             <Route path="/departments" element={<Departments />} />
 
-            {/* Analytics */}
             <Route path="/reports" element={<Reports />} />
 
-            {/* Administration */}
             <Route path="/users" element={<Users />} />
+
             <Route path="/settings" element={<Settings />} />
           </Route>
         </Route>
 
-        {/* =========================
+        {/* ==================================
             DEFAULT ROUTES
-        ========================== */}
+        ================================== */}
 
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route
+          path="/"
+          element={<Navigate to="/dashboard" replace />}
+        />
 
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route
+          path="*"
+          element={<Navigate to="/login" replace />}
+        />
       </Routes>
     </>
   );

@@ -3,6 +3,27 @@ import Purchase from "../models/Purchase.js";
 import Department from "../models/Department.js";
 
 // ======================================================
+// GET USER'S ASSIGNED DEPARTMENT
+// ======================================================
+
+const getAssignedDepartmentId = (req) => {
+  const department =
+    req.user?.department?._id ||
+    req.user?.department ||
+    req.user?.departmentId;
+
+  return department ? String(department) : null;
+};
+
+// ======================================================
+// CHECK WHETHER USER IS ADMIN
+// ======================================================
+
+const isAdmin = (req) => {
+  return req.user?.role === "admin";
+};
+
+// ======================================================
 // CALCULATE INVENTORY STATUS
 // ======================================================
 
@@ -24,25 +45,53 @@ const calculateStatus = (available, minimumStock) => {
 
 export const getPurchasedItems = async (req, res) => {
   try {
-    const purchases = await Purchase.find({
+    const purchaseQuery = {
       status: {
         $in: ["Received", "Partially Received"],
       },
-    })
-      .select("purchaseNo purchaseDate supplier status items")
+    };
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+
+      purchaseQuery.department = departmentId;
+    }
+
+    const purchases = await Purchase.find(purchaseQuery)
+      .select(
+        "purchaseNo purchaseDate supplier status items department"
+      )
       .populate("supplier", "supplierId name")
       .sort({
         purchaseDate: -1,
       });
 
-    const existingInventory = await Inventory.find()
+    const existingInventoryQuery = {};
+
+    if (!isAdmin(req)) {
+      existingInventoryQuery.department =
+        getAssignedDepartmentId(req);
+    }
+
+    const existingInventory = await Inventory.find(
+      existingInventoryQuery
+    )
       .select("purchase purchaseItemCode")
       .lean();
 
     const existingSet = new Set(
       existingInventory
         .filter((item) => item.purchase && item.purchaseItemCode)
-        .map((item) => `${item.purchase}_${item.purchaseItemCode}`),
+        .map(
+          (item) => `${item.purchase}_${item.purchaseItemCode}`
+        )
     );
 
     const purchasedItems = [];
@@ -59,8 +108,8 @@ export const getPurchasedItems = async (req, res) => {
           purchaseId: purchase._id,
           purchaseNo: purchase.purchaseNo,
           purchaseDate: purchase.purchaseDate,
-
           supplier: purchase.supplier,
+          department: purchase.department,
 
           itemCode: item.itemId,
           name: item.name,
@@ -104,6 +153,34 @@ export const getInventory = async (req, res) => {
 
     const query = {};
 
+    // ==================================================
+    // DEPARTMENT ACCESS
+    // ==================================================
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+
+      // Department users can only see their own department.
+      // Ignore any department ID sent through query parameters.
+      query.department = departmentId;
+    } else {
+      // Admin can filter inventory by any department.
+      if (department !== "All") {
+        query.department = department;
+      }
+    }
+
+    // ==================================================
+    // SEARCH
+    // ==================================================
+
     if (search.trim()) {
       const regex = new RegExp(search.trim(), "i");
 
@@ -120,17 +197,25 @@ export const getInventory = async (req, res) => {
       ];
     }
 
+    // ==================================================
+    // CATEGORY FILTER
+    // ==================================================
+
     if (category !== "All") {
       query.category = category;
     }
+
+    // ==================================================
+    // STATUS FILTER
+    // ==================================================
 
     if (status !== "All") {
       query.status = status;
     }
 
-    if (department !== "All") {
-      query.department = department;
-    }
+    // ==================================================
+    // FETCH INVENTORY
+    // ==================================================
 
     const inventory = await Inventory.find(query)
       .populate("department", "name departmentName code")
@@ -160,7 +245,26 @@ export const getInventory = async (req, res) => {
 
 export const getInventoryById = async (req, res) => {
   try {
-    const inventory = await Inventory.findById(req.params.id).populate(
+    const query = {
+      _id: req.params.id,
+    };
+
+    // Department users can only access an item
+    // belonging to their assigned department.
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+
+      query.department = departmentId;
+    }
+
+    const inventory = await Inventory.findOne(query).populate(
       "department",
       "name departmentName code",
     );
@@ -204,7 +308,10 @@ const generateSequentialItemCode = async () => {
   let nextNum = 1;
 
   if (lastItem?.itemCode) {
-    const rawNumber = parseInt(lastItem.itemCode.replace(prefix, ""), 10);
+    const rawNumber = parseInt(
+      lastItem.itemCode.replace(prefix, ""),
+      10,
+    );
 
     if (!Number.isNaN(rawNumber)) {
       nextNum = rawNumber + 1;
@@ -231,7 +338,6 @@ export const createInventory = async (req, res) => {
       description,
 
       // Optional purchase information.
-      // These are normally omitted for manual inventory.
       purchase,
       purchaseItemCode,
     } = req.body;
@@ -254,17 +360,49 @@ export const createInventory = async (req, res) => {
       });
     }
 
-    if (!department) {
+    if (!unit?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Unit is required",
+      });
+    }
+
+    // ==================================================
+    // DEPARTMENT
+    // ==================================================
+
+    let finalDepartment;
+
+    if (isAdmin(req)) {
+      // Admin can select any department.
+      finalDepartment = department;
+    } else {
+      // Department user must use their assigned department.
+      finalDepartment = getAssignedDepartmentId(req);
+
+      if (!finalDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+    }
+
+    if (!finalDepartment) {
       return res.status(400).json({
         success: false,
         message: "Department is required",
       });
     }
 
-    if (!unit?.trim()) {
-      return res.status(400).json({
+    const departmentExists = await Department.findById(
+      finalDepartment,
+    );
+
+    if (!departmentExists) {
+      return res.status(404).json({
         success: false,
-        message: "Unit is required",
+        message: "Department not found",
       });
     }
 
@@ -290,23 +428,13 @@ export const createInventory = async (req, res) => {
         ? 0
         : Number(minimumStock);
 
-    if (!Number.isFinite(parsedMinimumStock) || parsedMinimumStock < 0) {
+    if (
+      !Number.isFinite(parsedMinimumStock) ||
+      parsedMinimumStock < 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Minimum stock must be a valid non-negative number",
-      });
-    }
-
-    // ==================================================
-    // DEPARTMENT
-    // ==================================================
-
-    const departmentExists = await Department.findById(department);
-
-    if (!departmentExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Department not found",
       });
     }
 
@@ -337,7 +465,10 @@ export const createInventory = async (req, res) => {
 
     const available = parsedQuantity;
 
-    const status = calculateStatus(available, parsedMinimumStock);
+    const status = calculateStatus(
+      available,
+      parsedMinimumStock,
+    );
 
     // ==================================================
     // CREATE INVENTORY DATA
@@ -347,7 +478,7 @@ export const createInventory = async (req, res) => {
       itemCode: finalItemCode,
       name: name.trim(),
       category: category.trim(),
-      department,
+      department: finalDepartment,
       unit: unit.trim(),
       quantity: parsedQuantity,
       available,
@@ -358,13 +489,6 @@ export const createInventory = async (req, res) => {
 
     // ==================================================
     // PURCHASE INFORMATION
-    // ==================================================
-    //
-    // Only add these fields when the inventory item
-    // actually came from a purchase.
-    //
-    // Manual Add Inventory does not send them.
-    //
     // ==================================================
 
     if (purchase) {
@@ -385,7 +509,9 @@ export const createInventory = async (req, res) => {
     // POPULATE DEPARTMENT
     // ==================================================
 
-    const populatedInventory = await Inventory.findById(inventory._id).populate(
+    const populatedInventory = await Inventory.findById(
+      inventory._id,
+    ).populate(
       "department",
       "name departmentName code",
     );
@@ -447,7 +573,29 @@ export const createInventory = async (req, res) => {
 
 export const updateInventory = async (req, res) => {
   try {
-    const inventory = await Inventory.findById(req.params.id);
+    // ==================================================
+    // FIND INVENTORY ITEM
+    // ==================================================
+
+    const query = {
+      _id: req.params.id,
+    };
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+
+      // Department users can update only their own items.
+      query.department = departmentId;
+    }
+
+    const inventory = await Inventory.findOne(query);
 
     if (!inventory) {
       return res.status(404).json({
@@ -501,17 +649,39 @@ export const updateInventory = async (req, res) => {
     // DEPARTMENT
     // ==================================================
 
-    if (department) {
-      const departmentExists = await Department.findById(department);
+    if (isAdmin(req)) {
+      // Admin can change the department.
+      if (department) {
+        const departmentExists = await Department.findById(
+          department,
+        );
 
-      if (!departmentExists) {
-        return res.status(404).json({
+        if (!departmentExists) {
+          return res.status(404).json({
+            success: false,
+            message: "Department not found",
+          });
+        }
+
+        inventory.department = department;
+      }
+    } else {
+      // Department users cannot move inventory
+      // to another department.
+      const assignedDepartmentId = getAssignedDepartmentId(req);
+
+      if (
+        department &&
+        String(department) !== assignedDepartmentId
+      ) {
+        return res.status(403).json({
           success: false,
-          message: "Department not found",
+          message: "You cannot change the department of this inventory item",
         });
       }
 
-      inventory.department = department;
+      // Keep the item in the user's assigned department.
+      inventory.department = assignedDepartmentId;
     }
 
     // ==================================================
@@ -547,7 +717,10 @@ export const updateInventory = async (req, res) => {
 
       // If available wasn't explicitly supplied,
       // make sure it doesn't exceed the new quantity.
-      if (available === undefined && inventory.available > parsedQuantity) {
+      if (
+        available === undefined &&
+        inventory.available > parsedQuantity
+      ) {
         inventory.available = parsedQuantity;
       }
     }
@@ -622,7 +795,9 @@ export const updateInventory = async (req, res) => {
     // RETURN UPDATED INVENTORY
     // ==================================================
 
-    const updatedInventory = await Inventory.findById(inventory._id).populate(
+    const updatedInventory = await Inventory.findById(
+      inventory._id,
+    ).populate(
       "department",
       "name departmentName code",
     );
@@ -670,7 +845,26 @@ export const updateInventory = async (req, res) => {
 
 export const deleteInventory = async (req, res) => {
   try {
-    const inventory = await Inventory.findById(req.params.id);
+    const query = {
+      _id: req.params.id,
+    };
+
+    if (!isAdmin(req)) {
+      const departmentId = getAssignedDepartmentId(req);
+
+      if (!departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "No department is assigned to your account",
+        });
+      }
+
+      // Department users can delete only items
+      // belonging to their own department.
+      query.department = departmentId;
+    }
+
+    const inventory = await Inventory.findOne(query);
 
     if (!inventory) {
       return res.status(404).json({
@@ -679,7 +873,7 @@ export const deleteInventory = async (req, res) => {
       });
     }
 
-    await Inventory.findByIdAndDelete(req.params.id);
+    await Inventory.findByIdAndDelete(inventory._id);
 
     res.status(200).json({
       success: true,

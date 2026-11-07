@@ -17,7 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import api from "../api/axios";
+import api from "../api/axios.js";
 
 const Returns = () => {
   const [returns, setReturns] = useState([]);
@@ -28,6 +28,10 @@ const Returns = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [canDelete, setCanDelete] = useState(false);
+  const [canChooseDepartment, setCanChooseDepartment] = useState(false);
+  const [assignedDepartmentId, setAssignedDepartmentId] = useState("");
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [conditionFilter, setConditionFilter] = useState("All");
@@ -36,7 +40,6 @@ const Returns = () => {
 
   const [selectedReturn, setSelectedReturn] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-
   const [editingReturn, setEditingReturn] = useState(null);
 
   const emptyForm = {
@@ -57,7 +60,7 @@ const Returns = () => {
   const [form, setForm] = useState(emptyForm);
 
   /* =====================================================
-     FETCH RETURNS
+     FETCH RETURNS AND PERMISSIONS
   ===================================================== */
 
   const fetchReturns = async () => {
@@ -67,12 +70,18 @@ const Returns = () => {
       const response = await api.get("/returns");
 
       setReturns(response.data?.returns || []);
+
+      const permissions = response.data?.permissions || {};
+
+      setCanDelete(permissions.canDelete === true);
+      setCanChooseDepartment(permissions.canChooseDepartment === true);
+
+      setAssignedDepartmentId(permissions.departmentId || "");
     } catch (error) {
       console.error("Fetch returns error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to fetch return records",
+        error.response?.data?.message || "Failed to fetch return records",
       );
     } finally {
       setLoading(false);
@@ -87,10 +96,7 @@ const Returns = () => {
     try {
       const response = await api.get("/departments");
 
-      const data =
-        response.data?.departments ||
-        response.data?.data ||
-        [];
+      const data = response.data?.departments || response.data?.data || [];
 
       setDepartments(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -135,6 +141,10 @@ const Returns = () => {
       setStockOuts(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Fetch stock outs error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to fetch Stock Out records",
+      );
     }
   };
 
@@ -150,11 +160,120 @@ const Returns = () => {
   }, []);
 
   /* =====================================================
+     SELECTED STOCK OUT
+  ===================================================== */
+
+  const selectedStockOut = useMemo(() => {
+    return (
+      stockOuts.find(
+        (record) => String(record._id) === String(form.stockOut),
+      ) || null
+    );
+  }, [stockOuts, form.stockOut]);
+
+  /* =====================================================
+     ALREADY RETURNED QUANTITY
+     
+     Completed and Under Inspection count.
+     Rejected returns do not count.
+     
+     When editing, exclude the current return record.
+  ===================================================== */
+
+  const alreadyReturnedQuantity = useMemo(() => {
+    if (!form.stockOut) return 0;
+
+    return returns
+      .filter((record) => {
+        const returnStockOutId = record.stockOut?._id || record.stockOut || "";
+
+        const sameStockOut = String(returnStockOutId) === String(form.stockOut);
+
+        const isNotCurrentEdit =
+          !editingReturn || String(record._id) !== String(editingReturn._id);
+
+        const countsAsReturned = ["Completed", "Under Inspection"].includes(
+          record.status,
+        );
+
+        return sameStockOut && isNotCurrentEdit && countsAsReturned;
+      })
+      .reduce((total, record) => total + Number(record.quantity || 0), 0);
+  }, [returns, form.stockOut, editingReturn]);
+
+  /* =====================================================
+     ISSUED AND REMAINING QUANTITY
+  ===================================================== */
+
+  const issuedQuantity = Number(selectedStockOut?.quantity || 0);
+
+  const remainingReturnableQuantity = Math.max(
+    0,
+    issuedQuantity - alreadyReturnedQuantity,
+  );
+
+  /* =====================================================
+     STOCK OUT FILTERING
+  ===================================================== */
+
+  const availableStockOuts = useMemo(() => {
+    const departmentId = canChooseDepartment
+      ? form.department
+      : assignedDepartmentId;
+
+    if (!departmentId) return [];
+
+    return stockOuts.filter((record) => {
+      const stockOutDepartment =
+        record.department?._id || record.department || "";
+
+      return String(stockOutDepartment) === String(departmentId);
+    });
+  }, [stockOuts, form.department, canChooseDepartment, assignedDepartmentId]);
+
+  /* =====================================================
      FORM HANDLER
   ===================================================== */
 
   const handleFormChange = (event) => {
     const { name, value } = event.target;
+
+    // When Stock Out changes, automatically fill item
+    // and department from the selected Stock Out record.
+
+    if (name === "stockOut") {
+      const selected = stockOuts.find(
+        (record) => String(record._id) === String(value),
+      );
+
+      setForm((previous) => ({
+        ...previous,
+        stockOut: value,
+        inventory: selected
+          ? selected.inventory?._id || selected.inventory || ""
+          : "",
+        department: selected
+          ? selected.department?._id || selected.department || ""
+          : previous.department,
+        quantity: "",
+      }));
+
+      return;
+    }
+
+    // Changing department clears previous Stock Out selection.
+
+    if (name === "department") {
+      setForm((previous) => ({
+        ...previous,
+        department: value,
+        stockOut: "",
+        inventory: "",
+        quantity: "",
+      }));
+
+      return;
+    }
 
     setForm((previous) => ({
       ...previous,
@@ -167,13 +286,13 @@ const Returns = () => {
   ===================================================== */
 
   const openAddModal = () => {
+    setSelectedReturn(null);
     setEditingReturn(null);
 
     setForm({
       ...emptyForm,
-      returnDate: new Date()
-        .toISOString()
-        .split("T")[0],
+      department: canChooseDepartment ? "" : assignedDepartmentId,
+      returnDate: new Date().toISOString().split("T")[0],
     });
 
     setShowAddModal(true);
@@ -187,26 +306,21 @@ const Returns = () => {
     setSelectedReturn(null);
     setEditingReturn(record);
 
+    const recordDepartmentId =
+      record.department?._id || record.department || "";
+
     setForm({
       returnNo: record.returnNo || "",
       inventory: record.inventory?._id || record.inventory || "",
-      department:
-        record.department?._id ||
-        record.department ||
-        "",
+      department: recordDepartmentId,
       quantity: record.quantity || "",
       returnDate: record.returnDate
-        ? new Date(record.returnDate)
-            .toISOString()
-            .split("T")[0]
+        ? new Date(record.returnDate).toISOString().split("T")[0]
         : "",
       returnedBy: record.returnedBy || "",
       condition: record.condition || "",
       reason: record.reason || "",
-      stockOut:
-        record.stockOut?._id ||
-        record.stockOut ||
-        "",
+      stockOut: record.stockOut?._id || record.stockOut || "",
       status: record.status || "Completed",
       receivedBy: record.receivedBy || "",
       remarks: record.remarks || "",
@@ -237,16 +351,83 @@ const Returns = () => {
     try {
       setSaving(true);
 
+      if (!form.stockOut) {
+        toast.error("Please select the Stock Out record for this return");
+        return;
+      }
+
+      const selected = stockOuts.find(
+        (record) => String(record._id) === String(form.stockOut),
+      );
+
+      if (!selected) {
+        toast.error("Selected Stock Out record was not found");
+        return;
+      }
+
+      // Always take item and department from Stock Out.
+      const finalInventory =
+        selected.inventory?._id || selected.inventory || "";
+
+      const finalDepartment =
+        selected.department?._id || selected.department || "";
+
+      if (!finalDepartment) {
+        toast.error("Department information is missing");
+        return;
+      }
+
+      if (!finalInventory) {
+        toast.error("Inventory information is missing");
+        return;
+      }
+
+      const returnQuantity = Number(form.quantity);
+
+      if (!Number.isFinite(returnQuantity) || returnQuantity <= 0) {
+        toast.error("Enter a valid return quantity");
+        return;
+      }
+
+      // Calculate the latest remaining quantity before saving.
+      const previouslyReturned = returns
+        .filter((record) => {
+          const returnStockOutId =
+            record.stockOut?._id || record.stockOut || "";
+
+          const sameStockOut =
+            String(returnStockOutId) === String(form.stockOut);
+
+          const notCurrentEdit =
+            !editingReturn || String(record._id) !== String(editingReturn._id);
+
+          const activeReturn = ["Completed", "Under Inspection"].includes(
+            record.status,
+          );
+
+          return sameStockOut && notCurrentEdit && activeReturn;
+        })
+        .reduce((total, record) => total + Number(record.quantity || 0), 0);
+
+      const issued = Number(selected.quantity || 0);
+
+      const remaining = Math.max(0, issued - previouslyReturned);
+
+      if (returnQuantity > remaining) {
+        toast.error(`Only ${remaining} unit(s) can be returned.`);
+        return;
+      }
+
       const payload = {
         returnNo: form.returnNo.trim() || undefined,
-        inventory: form.inventory,
-        department: form.department,
-        quantity: Number(form.quantity),
+        inventory: finalInventory,
+        department: finalDepartment,
+        quantity: returnQuantity,
         returnDate: form.returnDate,
         returnedBy: form.returnedBy.trim(),
         condition: form.condition,
         reason: form.reason.trim(),
-        stockOut: form.stockOut || null,
+        stockOut: form.stockOut,
         status: form.status || "Completed",
         receivedBy: form.receivedBy.trim(),
         remarks: form.remarks.trim(),
@@ -255,15 +436,9 @@ const Returns = () => {
       let response;
 
       if (editingReturn) {
-        response = await api.put(
-          `/returns/${editingReturn._id}`,
-          payload,
-        );
+        response = await api.put(`/returns/${editingReturn._id}`, payload);
       } else {
-        response = await api.post(
-          "/returns",
-          payload,
-        );
+        response = await api.post("/returns", payload);
       }
 
       toast.success(
@@ -273,17 +448,18 @@ const Returns = () => {
             : "Return created successfully"),
       );
 
-      closeFormModal();
+      setShowAddModal(false);
+      setEditingReturn(null);
+      setSelectedReturn(null);
+      setForm(emptyForm);
 
       await fetchReturns();
       await fetchInventory();
+      await fetchStockOuts();
     } catch (error) {
       console.error("Save return error:", error);
 
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to save return",
-      );
+      toast.error(error.response?.data?.message || "Failed to save return");
     } finally {
       setSaving(false);
     }
@@ -291,13 +467,17 @@ const Returns = () => {
 
   /* =====================================================
      DELETE RETURN
+     ADMIN ONLY
   ===================================================== */
 
   const handleDeleteReturn = async (record) => {
+    if (!canDelete) {
+      toast.error("You do not have permission to delete returns");
+      return;
+    }
+
     const confirmed = window.confirm(
-      `Are you sure you want to delete ${getReturnNo(
-        record,
-      )}?`,
+      `Are you sure you want to delete ${getReturnNo(record)}?`,
     );
 
     if (!confirmed) return;
@@ -305,21 +485,17 @@ const Returns = () => {
     try {
       await api.delete(`/returns/${record._id}`);
 
-      toast.success(
-        "Return deleted successfully",
-      );
+      toast.success("Return deleted successfully");
 
       setSelectedReturn(null);
 
       await fetchReturns();
       await fetchInventory();
+      await fetchStockOuts();
     } catch (error) {
       console.error("Delete return error:", error);
 
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to delete return",
-      );
+      toast.error(error.response?.data?.message || "Failed to delete return");
     }
   };
 
@@ -342,42 +518,28 @@ const Returns = () => {
         itemName.toLowerCase().includes(query) ||
         category.toLowerCase().includes(query) ||
         department.toLowerCase().includes(query) ||
-        (record.returnedBy || "")
-          .toLowerCase()
-          .includes(query) ||
-        (record.reason || "")
-          .toLowerCase()
-          .includes(query) ||
-        (record.remarks || "")
-          .toLowerCase()
-          .includes(query);
+        (record.returnedBy || "").toLowerCase().includes(query) ||
+        (record.reason || "").toLowerCase().includes(query) ||
+        (record.remarks || "").toLowerCase().includes(query);
 
       const matchesStatus =
-        statusFilter === "All" ||
-        record.status === statusFilter;
+        statusFilter === "All" || record.status === statusFilter;
 
       const matchesCondition =
-        conditionFilter === "All" ||
-        record.condition === conditionFilter;
+        conditionFilter === "All" || record.condition === conditionFilter;
 
-      const departmentId =
-        record.department?._id ||
-        record.department ||
-        "";
+      const departmentId = record.department?._id || record.department || "";
 
       const matchesDepartment =
         departmentFilter === "All" ||
-        departmentId === departmentFilter ||
+        String(departmentId) === String(departmentFilter) ||
         department === departmentFilter;
 
-      const inventoryId =
-        record.inventory?._id ||
-        record.inventory ||
-        "";
+      const inventoryId = record.inventory?._id || record.inventory || "";
 
       const matchesInventory =
         inventoryFilter === "All" ||
-        inventoryId === inventoryFilter ||
+        String(inventoryId) === String(inventoryFilter) ||
         itemName === inventoryFilter;
 
       return (
@@ -408,19 +570,15 @@ const Returns = () => {
   ).length;
 
   const inspectionReturns = returns.filter(
-    (record) =>
-      record.status === "Under Inspection",
+    (record) => record.status === "Under Inspection",
   ).length;
 
   const damagedReturns = returns.filter(
-    (record) =>
-      record.condition === "Damaged" ||
-      record.condition === "Repair",
+    (record) => record.condition === "Damaged" || record.condition === "Repair",
   ).length;
 
   const totalReturnedQuantity = returns.reduce(
-    (sum, record) =>
-      sum + Number(record.quantity || 0),
+    (sum, record) => sum + Number(record.quantity || 0),
     0,
   );
 
@@ -466,9 +624,7 @@ const Returns = () => {
 
   return (
     <div className="space-y-6">
-      {/* =================================================
-          HEADER
-      ================================================= */}
+      {/* HEADER */}
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -478,9 +634,7 @@ const Returns = () => {
             </div>
 
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">
-                Returns
-              </h1>
+              <h1 className="text-2xl font-semibold text-slate-900">Returns</h1>
 
               <p className="text-sm text-slate-500 mt-1">
                 Manage items returned by departments and staff.
@@ -498,9 +652,7 @@ const Returns = () => {
         </button>
       </div>
 
-      {/* =================================================
-          SUMMARY CARDS
-      ================================================= */}
+      {/* SUMMARY CARDS */}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <SummaryCard
@@ -544,134 +696,84 @@ const Returns = () => {
         />
       </div>
 
-      {/* =================================================
-          MAIN TABLE
-      ================================================= */}
+      {/* MAIN TABLE */}
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {/* TOOLBAR */}
-
         <div className="p-4 sm:p-5 border-b border-slate-200">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-              {/* SEARCH */}
-
               <div className="relative w-full xl:max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 
                 <input
                   type="text"
                   value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search return records..."
                   className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
               </div>
 
-              {/* FILTERS */}
-
               <div className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={departmentFilter}
-                  onChange={(event) =>
-                    setDepartmentFilter(
-                      event.target.value,
-                    )
-                  }
-                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                >
-                  <option value="All">
-                    All Departments
-                  </option>
+                {canChooseDepartment && (
+                  <select
+                    value={departmentFilter}
+                    onChange={(event) =>
+                      setDepartmentFilter(event.target.value)
+                    }
+                    className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="All">All Departments</option>
 
-                  {departments.map((department) => (
-                    <option
-                      key={department._id}
-                      value={department._id}
-                    >
-                      {getDepartmentName({
-                        department,
-                      })}
-                    </option>
-                  ))}
-                </select>
+                    {departments.map((department) => (
+                      <option key={department._id} value={department._id}>
+                        {getDepartmentName({ department })}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 <select
                   value={inventoryFilter}
-                  onChange={(event) =>
-                    setInventoryFilter(
-                      event.target.value,
-                    )
-                  }
-                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  onChange={(event) => setInventoryFilter(event.target.value)}
+                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
                 >
-                  <option value="All">
-                    All Items
-                  </option>
+                  <option value="All">All Items</option>
 
                   {inventoryItems.map((item) => (
-                    <option
-                      key={item._id}
-                      value={item._id}
-                    >
-                      {getInventoryName({
-                        inventory: item,
-                      })}
+                    <option key={item._id} value={item._id}>
+                      {getInventoryName({ inventory: item })}
                     </option>
                   ))}
                 </select>
 
                 <select
                   value={conditionFilter}
-                  onChange={(event) =>
-                    setConditionFilter(
-                      event.target.value,
-                    )
-                  }
-                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  onChange={(event) => setConditionFilter(event.target.value)}
+                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
                 >
-                  <option value="All">
-                    All Conditions
-                  </option>
+                  <option value="All">All Conditions</option>
                   <option value="Good">Good</option>
                   <option value="Repair">Repair</option>
-                  <option value="Damaged">
-                    Damaged
-                  </option>
+                  <option value="Damaged">Damaged</option>
                 </select>
 
                 <select
                   value={statusFilter}
-                  onChange={(event) =>
-                    setStatusFilter(
-                      event.target.value,
-                    )
-                  }
-                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
                 >
-                  <option value="All">
-                    All Status
-                  </option>
-                  <option value="Completed">
-                    Completed
-                  </option>
-                  <option value="Under Inspection">
-                    Under Inspection
-                  </option>
-                  <option value="Rejected">
-                    Rejected
-                  </option>
+                  <option value="All">All Status</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Under Inspection">Under Inspection</option>
+                  <option value="Rejected">Rejected</option>
                 </select>
               </div>
             </div>
           </div>
         </div>
 
-        {/* =================================================
-            DESKTOP TABLE
-        ================================================= */}
+        {/* DESKTOP TABLE */}
 
         <div className="hidden lg:block overflow-x-auto">
           {loading ? (
@@ -681,41 +783,26 @@ const Returns = () => {
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Return
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Item
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Department
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Returned By
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Quantity
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Condition
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Date
-                    </th>
-
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Status
-                    </th>
-
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Action
-                    </th>
+                    {[
+                      "Return",
+                      "Item",
+                      "Department",
+                      "Returned By",
+                      "Quantity",
+                      "Condition",
+                      "Date",
+                      "Status",
+                      "Action",
+                    ].map((heading) => (
+                      <th
+                        key={heading}
+                        className={`px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider ${
+                          heading === "Action" ? "text-right" : "text-left"
+                        }`}
+                      >
+                        {heading}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
 
@@ -725,8 +812,6 @@ const Returns = () => {
                       key={record._id}
                       className="hover:bg-slate-50/70 transition-colors"
                     >
-                      {/* RETURN ID */}
-
                       <td className="px-5 py-4">
                         <p className="text-sm font-medium text-indigo-600">
                           {getReturnNo(record)}
@@ -736,8 +821,6 @@ const Returns = () => {
                           {record.reason}
                         </p>
                       </td>
-
-                      {/* ITEM */}
 
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
@@ -751,23 +834,17 @@ const Returns = () => {
                             </p>
 
                             <p className="text-xs text-slate-400 mt-1">
-                              {getInventoryCategory(
-                                record,
-                              )}
+                              {getInventoryCategory(record)}
                             </p>
                           </div>
                         </div>
                       </td>
-
-                      {/* DEPARTMENT */}
 
                       <td className="px-5 py-4">
                         <p className="text-sm text-slate-700">
                           {getDepartmentName(record)}
                         </p>
                       </td>
-
-                      {/* RETURNED BY */}
 
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
@@ -779,8 +856,6 @@ const Returns = () => {
                         </div>
                       </td>
 
-                      {/* QUANTITY */}
-
                       <td className="px-5 py-4">
                         <span className="text-sm font-semibold text-slate-800">
                           {record.quantity}
@@ -790,8 +865,6 @@ const Returns = () => {
                           units
                         </span>
                       </td>
-
-                      {/* CONDITION */}
 
                       <td className="px-5 py-4">
                         <span
@@ -803,19 +876,12 @@ const Returns = () => {
                         </span>
                       </td>
 
-                      {/* DATE */}
-
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <CalendarDays className="w-4 h-4 text-slate-400" />
-
-                          {formatDate(
-                            record.returnDate,
-                          )}
+                          {formatDate(record.returnDate)}
                         </div>
                       </td>
-
-                      {/* STATUS */}
 
                       <td className="px-5 py-4">
                         <span
@@ -827,14 +893,10 @@ const Returns = () => {
                         </span>
                       </td>
 
-                      {/* ACTION */}
-
                       <td className="px-5 py-4">
                         <div className="flex justify-end gap-1">
                           <button
-                            onClick={() =>
-                              setSelectedReturn(record)
-                            }
+                            onClick={() => setSelectedReturn(record)}
                             className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
                             title="View details"
                           >
@@ -842,24 +904,22 @@ const Returns = () => {
                           </button>
 
                           <button
-                            onClick={() =>
-                              openEditModal(record)
-                            }
+                            onClick={() => openEditModal(record)}
                             className="p-2 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition"
                             title="Edit return"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
 
-                          <button
-                            onClick={() =>
-                              handleDeleteReturn(record)
-                            }
-                            className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition"
-                            title="Delete return"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canDelete && (
+                            <button
+                              onClick={() => handleDeleteReturn(record)}
+                              className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition"
+                              title="Delete return"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -867,16 +927,12 @@ const Returns = () => {
                 </tbody>
               </table>
 
-              {filteredReturns.length === 0 && (
-                <EmptyState />
-              )}
+              {filteredReturns.length === 0 && <EmptyState />}
             </>
           )}
         </div>
 
-        {/* =================================================
-            MOBILE CARDS
-        ================================================= */}
+        {/* MOBILE CARDS */}
 
         <div className="lg:hidden divide-y divide-slate-100">
           {loading ? (
@@ -884,12 +940,7 @@ const Returns = () => {
           ) : (
             <>
               {filteredReturns.map((record) => (
-                <div
-                  key={record._id}
-                  className="p-4"
-                >
-                  {/* TOP */}
-
+                <div key={record._id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
@@ -916,53 +967,32 @@ const Returns = () => {
                     </span>
                   </div>
 
-                  {/* INFORMATION */}
-
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <Info
                       label="Department"
-                      value={getDepartmentName(
-                        record,
-                      )}
+                      value={getDepartmentName(record)}
                     />
 
-                    <Info
-                      label="Returned By"
-                      value={record.returnedBy}
-                    />
+                    <Info label="Returned By" value={record.returnedBy} />
 
-                    <Info
-                      label="Quantity"
-                      value={`${record.quantity} units`}
-                    />
+                    <Info label="Quantity" value={`${record.quantity} units`} />
 
                     <Info
                       label="Return Date"
-                      value={formatDate(
-                        record.returnDate,
-                      )}
+                      value={formatDate(record.returnDate)}
                     />
 
-                    <Info
-                      label="Condition"
-                      value={record.condition}
-                    />
+                    <Info label="Condition" value={record.condition} />
 
                     <Info
                       label="Category"
-                      value={getInventoryCategory(
-                        record,
-                      )}
+                      value={getInventoryCategory(record)}
                     />
                   </div>
 
-                  {/* ACTION */}
-
                   <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
                     <button
-                      onClick={() =>
-                        setSelectedReturn(record)
-                      }
+                      onClick={() => setSelectedReturn(record)}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
                     >
                       <Eye className="w-4 h-4" />
@@ -970,52 +1000,42 @@ const Returns = () => {
                     </button>
 
                     <button
-                      onClick={() =>
-                        openEditModal(record)
-                      }
+                      onClick={() => openEditModal(record)}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-amber-600 hover:bg-amber-50 transition"
                     >
                       <Pencil className="w-4 h-4" />
                       Edit
                     </button>
 
-                    <button
-                      onClick={() =>
-                        handleDeleteReturn(record)
-                      }
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 transition"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
+                    {canDelete && (
+                      <button
+                        onClick={() => handleDeleteReturn(record)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
 
-              {filteredReturns.length === 0 && (
-                <EmptyState />
-              )}
+              {filteredReturns.length === 0 && <EmptyState />}
             </>
           )}
         </div>
       </div>
 
-      {/* =================================================
-          VIEW DETAILS MODAL
-      ================================================= */}
+      {/* VIEW DETAILS MODAL */}
 
       {selectedReturn && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            onClick={() =>
-              setSelectedReturn(null)
-            }
+            onClick={() => setSelectedReturn(null)}
           />
 
           <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
-            {/* HEADER */}
-
             <div className="sticky top-0 z-10 bg-white px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <p className="text-xs text-indigo-600 font-medium">
@@ -1028,20 +1048,14 @@ const Returns = () => {
               </div>
 
               <button
-                onClick={() =>
-                  setSelectedReturn(null)
-                }
+                onClick={() => setSelectedReturn(null)}
                 className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* CONTENT */}
-
             <div className="p-5 space-y-5">
-              {/* ITEM */}
-
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
@@ -1050,27 +1064,19 @@ const Returns = () => {
 
                   <div>
                     <h3 className="font-semibold text-slate-900">
-                      {getInventoryName(
-                        selectedReturn,
-                      )}
+                      {getInventoryName(selectedReturn)}
                     </h3>
 
                     <p className="text-sm text-slate-500 mt-1">
-                      {getInventoryCategory(
-                        selectedReturn,
-                      )}
+                      {getInventoryCategory(selectedReturn)}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* STATUS */}
-
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs text-slate-400">
-                    Status
-                  </p>
+                  <p className="text-xs text-slate-400">Status</p>
 
                   <span
                     className={`inline-flex mt-1 px-2.5 py-1 rounded-full border text-xs font-medium ${getStatusStyle(
@@ -1082,9 +1088,7 @@ const Returns = () => {
                 </div>
 
                 <div className="text-right">
-                  <p className="text-xs text-slate-400">
-                    Condition
-                  </p>
+                  <p className="text-xs text-slate-400">Condition</p>
 
                   <span
                     className={`inline-flex mt-1 px-2.5 py-1 rounded-full border text-xs font-medium ${getConditionStyle(
@@ -1096,20 +1100,13 @@ const Returns = () => {
                 </div>
               </div>
 
-              {/* DETAILS */}
-
               <div className="grid grid-cols-2 gap-4">
                 <Detail
                   label="Department"
-                  value={getDepartmentName(
-                    selectedReturn,
-                  )}
+                  value={getDepartmentName(selectedReturn)}
                 />
 
-                <Detail
-                  label="Returned By"
-                  value={selectedReturn.returnedBy}
-                />
+                <Detail label="Returned By" value={selectedReturn.returnedBy} />
 
                 <Detail
                   label="Quantity"
@@ -1118,89 +1115,60 @@ const Returns = () => {
 
                 <Detail
                   label="Return Date"
-                  value={formatDate(
-                    selectedReturn.returnDate,
-                  )}
+                  value={formatDate(selectedReturn.returnDate)}
                 />
 
-                <Detail
-                  label="Received By"
-                  value={selectedReturn.receivedBy}
-                />
+                <Detail label="Received By" value={selectedReturn.receivedBy} />
 
                 <Detail
                   label="Category"
-                  value={getInventoryCategory(
-                    selectedReturn,
-                  )}
+                  value={getInventoryCategory(selectedReturn)}
                 />
 
                 <Detail
                   label="Stock Out"
-                  value={
-                    selectedReturn.stockOut
-                      ?.stockOutNo ||
-                    "Not linked"
-                  }
+                  value={selectedReturn.stockOut?.stockOutNo || "Not linked"}
                 />
 
                 <Detail
                   label="Item Code"
-                  value={
-                    selectedReturn.inventory
-                      ?.itemCode || "—"
-                  }
+                  value={selectedReturn.inventory?.itemCode || "—"}
                 />
               </div>
 
-              {/* REASON */}
-
               <div>
-                <p className="text-xs text-slate-400">
-                  Return Reason
-                </p>
+                <p className="text-xs text-slate-400">Return Reason</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
                   {selectedReturn.reason}
                 </p>
               </div>
 
-              {/* REMARKS */}
-
               <div>
-                <p className="text-xs text-slate-400">
-                  Remarks
-                </p>
+                <p className="text-xs text-slate-400">Remarks</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
-                  {selectedReturn.remarks ||
-                    "No remarks"}
+                  {selectedReturn.remarks || "No remarks"}
                 </p>
               </div>
             </div>
 
-            {/* FOOTER */}
-
             <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-between gap-2">
-              <button
-                onClick={() =>
-                  handleDeleteReturn(
-                    selectedReturn,
-                  )
-                }
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-50 border border-rose-200 text-sm font-medium text-rose-600 hover:bg-rose-100 transition"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
+              {canDelete ? (
+                <button
+                  onClick={() => handleDeleteReturn(selectedReturn)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-50 border border-rose-200 text-sm font-medium text-rose-600 hover:bg-rose-100 transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              ) : (
+                <div />
+              )}
 
               <div className="flex gap-2">
                 <button
-                  onClick={() =>
-                    openEditModal(
-                      selectedReturn,
-                    )
-                  }
+                  onClick={() => openEditModal(selectedReturn)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 text-sm font-medium text-amber-700 hover:bg-amber-100 transition"
                 >
                   <Pencil className="w-4 h-4" />
@@ -1208,9 +1176,7 @@ const Returns = () => {
                 </button>
 
                 <button
-                  onClick={() =>
-                    setSelectedReturn(null)
-                  }
+                  onClick={() => setSelectedReturn(null)}
                   className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
                 >
                   Close
@@ -1221,9 +1187,7 @@ const Returns = () => {
         </div>
       )}
 
-      {/* =================================================
-          ADD / EDIT RETURN MODAL
-      ================================================= */}
+      {/* ADD / EDIT RETURN MODAL */}
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1233,14 +1197,10 @@ const Returns = () => {
           />
 
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
-            {/* HEADER */}
-
             <div className="sticky top-0 bg-white z-10 px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  {editingReturn
-                    ? "Edit Return"
-                    : "Add Return"}
+                  {editingReturn ? "Edit Return" : "Add Return"}
                 </h2>
 
                 <p className="text-xs text-slate-500 mt-1">
@@ -1258,8 +1218,6 @@ const Returns = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* FORM */}
 
             <form onSubmit={handleSaveReturn}>
               <div className="p-5 space-y-5">
@@ -1286,49 +1244,6 @@ const Returns = () => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* ITEM */}
-
-                  <FormSelect
-                    label="Item"
-                    name="inventory"
-                    value={form.inventory}
-                    onChange={handleFormChange}
-                    required
-                    disabled={saving}
-                  >
-                    <option value="">
-                      Select item
-                    </option>
-
-                    {inventoryItems.map((item) => (
-                      <option
-                        key={item._id}
-                        value={item._id}
-                      >
-                        {getInventoryName({
-                          inventory: item,
-                        })}
-                        {item.itemCode
-                          ? ` (${item.itemCode})`
-                          : ""}
-                      </option>
-                    ))}
-                  </FormSelect>
-
-                  {/* QUANTITY */}
-
-                  <FormField
-                    label="Quantity"
-                    name="quantity"
-                    type="number"
-                    min="1"
-                    placeholder="0"
-                    value={form.quantity}
-                    onChange={handleFormChange}
-                    required
-                    disabled={saving}
-                  />
-
                   {/* DEPARTMENT */}
 
                   <FormSelect
@@ -1337,23 +1252,185 @@ const Returns = () => {
                     value={form.department}
                     onChange={handleFormChange}
                     required
-                    disabled={saving}
+                    disabled={saving || !canChooseDepartment}
                   >
-                    <option value="">
-                      Select department
-                    </option>
+                    {canChooseDepartment && (
+                      <option value="">Select department</option>
+                    )}
 
                     {departments.map((department) => (
-                      <option
-                        key={department._id}
-                        value={department._id}
-                      >
-                        {getDepartmentName({
-                          department,
-                        })}
+                      <option key={department._id} value={department._id}>
+                        {getDepartmentName({ department })}
                       </option>
                     ))}
                   </FormSelect>
+
+                  {/* STOCK OUT REFERENCE */}
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Stock Out Reference
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
+
+                    <select
+                      name="stockOut"
+                      value={form.stockOut}
+                      onChange={handleFormChange}
+                      required
+                      disabled={saving || !form.department}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
+                    >
+                      <option value="">Select Stock Out record</option>
+
+                      {availableStockOuts.map((stockOut) => {
+                        const returnedQuantity = returns
+                          .filter((record) => {
+                            const returnStockOutId =
+                              record.stockOut?._id || record.stockOut || "";
+
+                            const sameStockOut =
+                              String(returnStockOutId) === String(stockOut._id);
+
+                            const notCurrentEdit =
+                              !editingReturn ||
+                              String(record._id) !== String(editingReturn._id);
+
+                            const activeReturn = [
+                              "Completed",
+                              "Under Inspection",
+                            ].includes(record.status);
+
+                            return (
+                              sameStockOut && notCurrentEdit && activeReturn
+                            );
+                          })
+                          .reduce(
+                            (total, record) =>
+                              total + Number(record.quantity || 0),
+                            0,
+                          );
+
+                        const remaining =
+                          Number(stockOut.quantity || 0) - returnedQuantity;
+
+                        return (
+                          <option key={stockOut._id} value={stockOut._id}>
+                            {stockOut.stockOutNo || stockOut._id}
+                            {" - "}
+                            {getInventoryName({
+                              inventory: stockOut.inventory,
+                            })}
+                            {" - "}
+                            {Math.max(0, remaining)} remaining
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <p className="text-[11px] text-slate-400 mt-1.5">
+                      Select the original Stock Out transaction for this return.
+                    </p>
+
+                    {form.department && availableStockOuts.length === 0 && (
+                      <p className="text-xs text-rose-600 mt-2">
+                        No Stock Out records found for this department.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ITEM - AUTOMATIC */}
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Item
+                      <span className="text-rose-500 ml-1">*</span>
+                    </label>
+
+                    <input
+                      type="text"
+                      value={
+                        selectedStockOut
+                          ? getInventoryName({
+                              inventory: selectedStockOut.inventory,
+                            })
+                          : form.inventory
+                            ? getInventoryName({
+                                inventory: inventoryItems.find(
+                                  (item) =>
+                                    String(item._id) === String(form.inventory),
+                                ),
+                              })
+                            : ""
+                      }
+                      placeholder="Select Stock Out Reference first"
+                      readOnly
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50"
+                    />
+                  </div>
+
+                  {/* QUANTITY */}
+
+                  <div>
+                    <FormField
+                      label="Quantity"
+                      name="quantity"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={remainingReturnableQuantity}
+                      placeholder="0"
+                      value={form.quantity}
+                      onChange={handleFormChange}
+                      required
+                      disabled={
+                        saving ||
+                        !form.stockOut ||
+                        remainingReturnableQuantity <= 0
+                      }
+                    />
+
+                    {selectedStockOut && (
+                      <div className="mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">
+                            Total issued quantity
+                          </span>
+
+                          <span className="font-semibold text-slate-800">
+                            {issuedQuantity}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">
+                            Already returned
+                          </span>
+
+                          <span className="font-semibold text-slate-800">
+                            {alreadyReturnedQuantity}
+                          </span>
+                        </div>
+
+                        <div className="border-t border-slate-200 pt-2 flex justify-between text-sm">
+                          <span className="font-medium text-slate-700">
+                            Remaining returnable
+                          </span>
+
+                          <span className="font-bold text-emerald-600">
+                            {remainingReturnableQuantity}
+                          </span>
+                        </div>
+
+                        {remainingReturnableQuantity <= 0 && (
+                          <p className="text-xs text-rose-600 flex items-center gap-1">
+                            <AlertTriangle className="w-4 h-4" />
+                            All issued items have already been returned.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* RETURNED BY */}
 
@@ -1389,21 +1466,10 @@ const Returns = () => {
                     required
                     disabled={saving}
                   >
-                    <option value="">
-                      Select condition
-                    </option>
-
-                    <option value="Good">
-                      Good
-                    </option>
-
-                    <option value="Repair">
-                      Repair
-                    </option>
-
-                    <option value="Damaged">
-                      Damaged
-                    </option>
+                    <option value="">Select condition</option>
+                    <option value="Good">Good</option>
+                    <option value="Repair">Repair</option>
+                    <option value="Damaged">Damaged</option>
                   </FormSelect>
 
                   {/* STATUS */}
@@ -1416,17 +1482,9 @@ const Returns = () => {
                     required
                     disabled={saving}
                   >
-                    <option value="Completed">
-                      Completed
-                    </option>
-
-                    <option value="Under Inspection">
-                      Under Inspection
-                    </option>
-
-                    <option value="Rejected">
-                      Rejected
-                    </option>
+                    <option value="Completed">Completed</option>
+                    <option value="Under Inspection">Under Inspection</option>
+                    <option value="Rejected">Rejected</option>
                   </FormSelect>
 
                   {/* RECEIVED BY */}
@@ -1447,9 +1505,7 @@ const Returns = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Return Reason
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <input
@@ -1462,43 +1518,6 @@ const Returns = () => {
                     placeholder="Reason for returning the item"
                     className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
                   />
-                </div>
-
-                {/* STOCK OUT REFERENCE */}
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Stock Out Reference
-                  </label>
-
-                  <select
-                    name="stockOut"
-                    value={form.stockOut}
-                    onChange={handleFormChange}
-                    disabled={saving}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
-                  >
-                    <option value="">
-                      No stock-out reference
-                    </option>
-
-                    {stockOuts.map((stockOut) => (
-                      <option
-                        key={stockOut._id}
-                        value={stockOut._id}
-                      >
-                        {stockOut.stockOutNo ||
-                          stockOut._id}
-                        {" - "}
-                        {stockOut.quantity || 0} units
-                      </option>
-                    ))}
-                  </select>
-
-                  <p className="text-[11px] text-slate-400 mt-1.5">
-                    Optional reference to the original
-                    stock-out transaction.
-                  </p>
                 </div>
 
                 {/* REMARKS */}
@@ -1599,10 +1618,7 @@ const getInventoryName = (record) => {
   }
 
   return (
-    inventory.name ||
-    inventory.itemName ||
-    inventory.itemCode ||
-    "Unknown Item"
+    inventory.name || inventory.itemName || inventory.itemCode || "Unknown Item"
   );
 };
 
@@ -1613,15 +1629,8 @@ const getInventoryCategory = (record) => {
     return "—";
   }
 
-  if (
-    inventory.category &&
-    typeof inventory.category === "object"
-  ) {
-    return (
-      inventory.category.name ||
-      inventory.category.categoryName ||
-      "—"
-    );
+  if (inventory.category && typeof inventory.category === "object") {
+    return inventory.category.name || inventory.category.categoryName || "—";
   }
 
   return inventory.category || "—";
@@ -1660,20 +1669,12 @@ const formatDate = (date) => {
    SUMMARY CARD
 ===================================================== */
 
-const SummaryCard = ({
-  title,
-  value,
-  icon: Icon,
-  iconClass,
-  bgClass,
-}) => {
+const SummaryCard = ({ title, value, icon: Icon, iconClass, bgClass }) => {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500">
-            {title}
-          </p>
+          <p className="text-sm text-slate-500">{title}</p>
 
           <h2 className="text-2xl font-semibold text-slate-900 mt-2">
             {value}
@@ -1697,13 +1698,9 @@ const SummaryCard = ({
 const Info = ({ label, value }) => {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-xs text-slate-700 mt-1 truncate">
-        {value || "—"}
-      </p>
+      <p className="text-xs text-slate-700 mt-1 truncate">{value || "—"}</p>
     </div>
   );
 };
@@ -1715,16 +1712,16 @@ const Info = ({ label, value }) => {
 const Detail = ({ label, value }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-      <p className="text-[11px] text-slate-400">
-        {label}
-      </p>
+      <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-sm font-medium text-slate-800 mt-1">
-        {value || "—"}
-      </p>
+      <p className="text-sm font-medium text-slate-800 mt-1">{value || "—"}</p>
     </div>
   );
 };
+
+/* =====================================================
+   FORM FIELD
+===================================================== */
 
 /* =====================================================
    FORM FIELD
@@ -1740,17 +1737,15 @@ const FormField = ({
   onChange,
   disabled,
   min,
+  max,
+  step,
 }) => {
   return (
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
 
-        {required && (
-          <span className="text-rose-500 ml-1">
-            *
-          </span>
-        )}
+        {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
 
       <input
@@ -1762,6 +1757,8 @@ const FormField = ({
         onChange={onChange}
         disabled={disabled}
         min={min}
+        max={max}
+        step={step}
         className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-50"
       />
     </div>
@@ -1786,11 +1783,7 @@ const FormSelect = ({
       <label className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
 
-        {required && (
-          <span className="text-rose-500 ml-1">
-            *
-          </span>
-        )}
+        {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
 
       <select
@@ -1811,27 +1804,16 @@ const FormSelect = ({
    CONDITION INFO
 ===================================================== */
 
-const ConditionInfo = ({
-  icon: Icon,
-  title,
-  description,
-  className,
-}) => {
+const ConditionInfo = ({ icon: Icon, title, description, className }) => {
   return (
-    <div
-      className={`p-3 rounded-lg border ${className}`}
-    >
+    <div className={`p-3 rounded-lg border ${className}`}>
       <div className="flex items-center gap-2">
         <Icon className="w-4 h-4" />
 
-        <span className="text-xs font-semibold">
-          {title}
-        </span>
+        <span className="text-xs font-semibold">{title}</span>
       </div>
 
-      <p className="text-[11px] mt-1 opacity-80">
-        {description}
-      </p>
+      <p className="text-[11px] mt-1 opacity-80">{description}</p>
     </div>
   );
 };

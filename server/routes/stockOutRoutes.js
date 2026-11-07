@@ -13,9 +13,11 @@ import authorize from "../middleware/role.middleware.js";
 
 const stockOutRouter = express.Router();
 
-// All stock-out routes require authentication + admin role
+// All Stock Out routes require authentication
 stockOutRouter.use(protect);
-stockOutRouter.use(authorize("admin"));
+
+// Admin and department users can access Stock Out routes
+stockOutRouter.use(authorize("admin", "department"));
 
 stockOutRouter.get("/", getStockOuts);
 
@@ -25,6 +27,7 @@ stockOutRouter.post("/", createStockOut);
 
 stockOutRouter.put("/:id", updateStockOut);
 
-stockOutRouter.delete("/:id", deleteStockOut);
+// Only admin can delete Stock Out records
+stockOutRouter.delete("/:id", authorize("admin"), deleteStockOut);
 
 export default stockOutRouter;

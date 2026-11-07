@@ -1,47 +1,71 @@
+import mongoose from "mongoose";
+
 import Return from "../models/Return.js";
 import Inventory from "../models/Inventory.js";
 import Department from "../models/Department.js";
 import StockOut from "../models/StockOut.js";
 
-// ======================================================
-// GENERATE RETURN NUMBER
-// ======================================================
+// --------------------------------------------------
+// CONSTANTS
+// --------------------------------------------------
 
-const generateReturnNo = async () => {
-  const year = new Date().getFullYear();
+const RETURN_STATUSES = [
+  "Completed",
+  "Under Inspection",
+  "Rejected",
+];
 
-  const prefix = `RET-${year}-`;
+const RETURN_CONDITIONS = [
+  "Good",
+  "Repair",
+  "Damaged",
+];
 
-  const lastReturn = await Return.findOne({
-    returnNo: {
-      $regex: `^${prefix}`,
-    },
-  })
-    .sort({ returnNo: -1 })
-    .select("returnNo");
+// --------------------------------------------------
+// COMMON HELPERS
+// --------------------------------------------------
 
-  if (!lastReturn) {
-    return `${prefix}001`;
-  }
+const isAdmin = (req) =>
+  req.user?.role?.toLowerCase() === "admin";
 
-  const lastNumber = Number(
-    lastReturn.returnNo.replace(prefix, "")
-  );
-
-  return `${prefix}${String(lastNumber + 1).padStart(3, "0")}`;
+const getDocumentId = (value) => {
+  if (!value) return null;
+  return String(value._id || value);
 };
 
-// ======================================================
-// CALCULATE INVENTORY STATUS
-// ======================================================
+const isValidObjectId = (value) =>
+  mongoose.Types.ObjectId.isValid(String(value || ""));
+
+const getAssignedDepartment = async (req) => {
+  const departmentValue =
+    req.user?.department?._id ||
+    req.user?.department ||
+    req.user?.departmentId;
+
+  if (!departmentValue) return null;
+
+  const value = String(departmentValue);
+
+  if (isValidObjectId(value)) {
+    const department = await Department.findById(value);
+    if (department) return department;
+  }
+
+  return Department.findOne({ departmentId: value });
+};
+
+const inventoryBelongsToDepartment = (
+  inventory,
+  departmentId,
+) =>
+  getDocumentId(inventory.department) ===
+  String(departmentId);
 
 const calculateInventoryStatus = (
   available,
-  minimumStock = 0
+  minimumStock = 0,
 ) => {
-  if (available <= 0) {
-    return "Out of Stock";
-  }
+  if (available <= 0) return "Out of Stock";
 
   if (available <= minimumStock) {
     return "Low Stock";
@@ -50,27 +74,315 @@ const calculateInventoryStatus = (
   return "Available";
 };
 
-// ======================================================
+const populateReturn = (query) =>
+  query
+    .populate("department")
+    .populate("inventory")
+    .populate("stockOut");
+
+const generateReturnNo = async () => {
+  const year = new Date().getFullYear();
+  const prefix = `RET-${year}-`;
+
+  const lastReturn = await Return.findOne({
+    returnNo: { $regex: `^${prefix}` },
+  }).sort({ returnNo: -1 });
+
+  let nextNumber = 1;
+
+  if (lastReturn?.returnNo) {
+    const lastNumber = Number(
+      lastReturn.returnNo.split("-")[2],
+    );
+
+    if (Number.isFinite(lastNumber)) {
+      nextNumber = lastNumber + 1;
+    }
+  }
+
+  return `${prefix}${String(nextNumber).padStart(3, "0")}`;
+};
+
+const isValidDate = (value) => {
+  return value && !Number.isNaN(new Date(value).getTime());
+};
+
+// --------------------------------------------------
+// GET PREVIOUSLY RETURNED QUANTITY
+//
+// Completed and Under Inspection count.
+// Rejected returns do not count.
+// --------------------------------------------------
+
+const getPreviouslyReturnedQuantity = async (
+  stockOutId,
+  excludeReturnId = null,
+) => {
+  const query = {
+    stockOut: new mongoose.Types.ObjectId(
+      String(stockOutId),
+    ),
+    status: {
+      $in: ["Completed", "Under Inspection"],
+    },
+  };
+
+  if (excludeReturnId) {
+    query._id = {
+      $ne: new mongoose.Types.ObjectId(
+        String(excludeReturnId),
+      ),
+    };
+  }
+
+  const result = await Return.aggregate([
+    { $match: query },
+    {
+      $group: {
+        _id: null,
+        totalReturned: { $sum: "$quantity" },
+      },
+    },
+  ]);
+
+  return Number(result[0]?.totalReturned || 0);
+};
+
+// --------------------------------------------------
+// VALIDATE RETURN AGAINST STOCK OUT
+// --------------------------------------------------
+
+const validateStockOutReturn = async ({
+  stockOutId,
+  inventoryId,
+  departmentId,
+  quantity,
+  excludeReturnId = null,
+}) => {
+  if (!stockOutId) {
+    return {
+      valid: false,
+      status: 400,
+      message:
+        "Please select the Stock Out record for this return",
+    };
+  }
+
+  if (!isValidObjectId(stockOutId)) {
+    return {
+      valid: false,
+      status: 400,
+      message: "Invalid Stock Out record",
+    };
+  }
+
+  const stockOutRecord =
+    await StockOut.findById(stockOutId);
+
+  if (!stockOutRecord) {
+    return {
+      valid: false,
+      status: 404,
+      message: "Stock Out record not found",
+    };
+  }
+
+  if (
+    getDocumentId(stockOutRecord.inventory) !==
+    String(inventoryId)
+  ) {
+    return {
+      valid: false,
+      status: 400,
+      message:
+        "Selected Stock Out does not match the inventory item",
+    };
+  }
+
+  if (
+    getDocumentId(stockOutRecord.department) !==
+    String(departmentId)
+  ) {
+    return {
+      valid: false,
+      status: 400,
+      message:
+        "Selected Stock Out does not belong to this department",
+    };
+  }
+
+  const alreadyReturned =
+    await getPreviouslyReturnedQuantity(
+      stockOutRecord._id,
+      excludeReturnId,
+    );
+
+  const issuedQuantity = Number(
+    stockOutRecord.quantity,
+  );
+
+  const remainingQuantity = Math.max(
+    0,
+    issuedQuantity - alreadyReturned,
+  );
+
+  if (Number(quantity) > remainingQuantity) {
+    return {
+      valid: false,
+      status: 400,
+      message:
+        `Only ${remainingQuantity} item(s) can be returned. ` +
+        `Issued: ${issuedQuantity}, ` +
+        `already returned: ${alreadyReturned}.`,
+      issuedQuantity,
+      alreadyReturned,
+      remainingQuantity,
+    };
+  }
+
+  return {
+    valid: true,
+    stockOutRecord,
+    issuedQuantity,
+    alreadyReturned,
+    remainingQuantity,
+  };
+};
+
+// --------------------------------------------------
+// APPLY INVENTORY CHANGES
+//
+// Completed and Under Inspection add stock.
+// Rejected does not add stock.
+//
+// On update, reverse the old return effect first,
+// then apply the new return effect.
+// --------------------------------------------------
+
+const applyInventoryChanges = async ({
+  oldInventoryId = null,
+  oldQuantity = 0,
+  oldStatus = "Rejected",
+
+  newInventoryId = null,
+  newQuantity = 0,
+  newStatus = "Rejected",
+}) => {
+  const changes = new Map();
+
+  // Reverse the old return.
+  if (oldInventoryId && oldStatus !== "Rejected") {
+    const id = String(oldInventoryId);
+
+    changes.set(
+      id,
+      (changes.get(id) || 0) - Number(oldQuantity),
+    );
+  }
+
+  // Apply the new return.
+  if (newInventoryId && newStatus !== "Rejected") {
+    const id = String(newInventoryId);
+
+    changes.set(
+      id,
+      (changes.get(id) || 0) + Number(newQuantity),
+    );
+  }
+
+  // Validate every affected inventory item first.
+  const updates = [];
+
+  for (const [inventoryId, difference] of changes) {
+    if (difference === 0) continue;
+
+    const inventoryItem =
+      await Inventory.findById(inventoryId);
+
+    if (!inventoryItem) {
+      throw new Error(
+        `Inventory item ${inventoryId} was not found`,
+      );
+    }
+
+    const currentAvailable = Number(
+      inventoryItem.available || 0,
+    );
+
+    const totalQuantity = Number(
+      inventoryItem.quantity || 0,
+    );
+
+    const newAvailable =
+      currentAvailable + difference;
+
+    if (newAvailable < 0) {
+      throw new Error(
+        "Inventory adjustment would make available stock negative",
+      );
+    }
+
+    if (newAvailable > totalQuantity) {
+      throw new Error(
+        "Returned quantity exceeds the total inventory quantity",
+      );
+    }
+
+    updates.push({
+      inventoryItem,
+      newAvailable,
+    });
+  }
+
+  // Save only after all affected items pass validation.
+  for (const update of updates) {
+    update.inventoryItem.available =
+      update.newAvailable;
+
+    update.inventoryItem.status =
+      calculateInventoryStatus(
+        update.newAvailable,
+        Number(update.inventoryItem.minimumStock || 0),
+      );
+
+    await update.inventoryItem.save();
+  }
+};
+
+// --------------------------------------------------
 // GET ALL RETURNS
-// ======================================================
+// --------------------------------------------------
 
 export const getReturns = async (req, res) => {
   try {
-    const {
-      search = "",
-      department = "All",
-      inventory = "All",
-      status = "All",
-      condition = "All",
-    } = req.query;
-
+    const admin = isAdmin(req);
     const query = {};
 
-    // -------------------------
-    // SEARCH
-    // -------------------------
+    let assignedDepartment = null;
 
-    if (search.trim()) {
+    if (!admin) {
+      assignedDepartment =
+        await getAssignedDepartment(req);
+
+      if (!assignedDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      query.department = assignedDepartment._id;
+    }
+
+    const {
+      search,
+      department,
+      inventory,
+      status,
+      condition,
+    } = req.query;
+
+    if (search?.trim()) {
       const regex = new RegExp(search.trim(), "i");
 
       query.$or = [
@@ -78,85 +390,114 @@ export const getReturns = async (req, res) => {
         { returnedBy: regex },
         { reason: regex },
         { remarks: regex },
-        { receivedBy: regex },
       ];
     }
 
-    // -------------------------
-    // FILTERS
-    // -------------------------
+    if (admin && department && department !== "All") {
+      if (!isValidObjectId(department)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid department ID",
+        });
+      }
 
-    if (department !== "All") {
       query.department = department;
     }
 
-    if (inventory !== "All") {
+    if (inventory && inventory !== "All") {
+      if (!isValidObjectId(inventory)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid inventory ID",
+        });
+      }
+
       query.inventory = inventory;
     }
 
-    if (status !== "All") {
+    if (status && status !== "All") {
+      if (!RETURN_STATUSES.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid return status",
+        });
+      }
+
       query.status = status;
     }
 
-    if (condition !== "All") {
+    if (condition && condition !== "All") {
+      if (!RETURN_CONDITIONS.includes(condition)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid return condition",
+        });
+      }
+
       query.condition = condition;
     }
 
-    // -------------------------
-    // GET RETURNS
-    // -------------------------
+    const returns = await populateReturn(
+      Return.find(query),
+    ).sort({ createdAt: -1 });
 
-    const returns = await Return.find(query)
-      .populate(
-        "department",
-        "name departmentName code"
-      )
-      .populate(
-        "inventory",
-        "itemCode name category unit quantity available minimumStock status"
-      )
-      .populate(
-        "stockOut",
-        "stockOutNo issuedDate issuedTo quantity"
-      )
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: returns.length,
+      permissions: {
+        canDelete: admin,
+        canChooseDepartment: admin,
+        departmentId: admin
+          ? null
+          : String(assignedDepartment._id),
+      },
       returns,
     });
   } catch (error) {
-    console.error("Get returns error:", error);
+    console.error("Get Returns Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch return records",
+      error: error.message,
     });
   }
 };
 
-// ======================================================
+// --------------------------------------------------
 // GET SINGLE RETURN
-// ======================================================
+// --------------------------------------------------
 
 export const getReturnById = async (req, res) => {
   try {
-    const returnRecord = await Return.findById(
-      req.params.id
-    )
-      .populate(
-        "department",
-        "name departmentName code"
-      )
-      .populate(
-        "inventory",
-        "itemCode name category unit quantity available minimumStock status"
-      )
-      .populate(
-        "stockOut",
-        "stockOutNo issuedDate issuedTo quantity"
-      );
+    const admin = isAdmin(req);
+
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return ID",
+      });
+    }
+
+    const query = { _id: req.params.id };
+
+    if (!admin) {
+      const assignedDepartment =
+        await getAssignedDepartment(req);
+
+      if (!assignedDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      query.department = assignedDepartment._id;
+    }
+
+    const returnRecord = await populateReturn(
+      Return.findOne(query),
+    );
 
     if (!returnRecord) {
       return res.status(404).json({
@@ -165,117 +506,122 @@ export const getReturnById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       return: returnRecord,
     });
   } catch (error) {
-    console.error("Get return error:", error);
+    console.error("Get Return By ID Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch return record",
+      error: error.message,
     });
   }
 };
 
-// ======================================================
+// --------------------------------------------------
 // CREATE RETURN
-// ======================================================
+// --------------------------------------------------
 
 export const createReturn = async (req, res) => {
   try {
+    const admin = isAdmin(req);
+
     const {
       returnNo,
-      inventory,
       department,
+      inventory,
+      stockOut,
       quantity,
       returnDate,
       returnedBy,
       condition,
-      reason,
-      stockOut,
-      status,
+      status = "Completed",
       receivedBy,
+      reason,
       remarks,
     } = req.body;
 
-    // -------------------------
-    // VALIDATION
-    // -------------------------
+    let finalDepartment = department;
 
-    if (!inventory) {
-      return res.status(400).json({
-        success: false,
-        message: "Inventory item is required",
-      });
+    // Department users must use their assigned department.
+    if (!admin) {
+      const assignedDepartment =
+        await getAssignedDepartment(req);
+
+      if (!assignedDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      finalDepartment = assignedDepartment._id;
     }
 
-    if (!department) {
+    if (
+      !finalDepartment ||
+      !inventory ||
+      quantity === undefined ||
+      !returnDate ||
+      !returnedBy?.trim() ||
+      !condition ||
+      !receivedBy?.trim() ||
+      !reason?.trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Department is required",
-      });
-    }
-
-    if (!returnDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Return date is required",
-      });
-    }
-
-    if (!returnedBy?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Returned By is required",
-      });
-    }
-
-    if (!reason?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Return reason is required",
-      });
-    }
-
-    if (!receivedBy?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Received By is required",
+        message: "Please provide all required fields",
       });
     }
 
     if (
-      !["Good", "Repair", "Damaged"].includes(
-        condition
-      )
+      !isValidObjectId(finalDepartment) ||
+      !isValidObjectId(inventory)
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Condition must be Good, Repair, or Damaged",
+        message: "Invalid department or inventory ID",
       });
     }
 
-    const parsedQuantity = Number(quantity);
+    const returnQuantity = Number(quantity);
 
     if (
-      !Number.isFinite(parsedQuantity) ||
-      parsedQuantity <= 0
+      !Number.isFinite(returnQuantity) ||
+      returnQuantity <= 0
     ) {
       return res.status(400).json({
         success: false,
-        message: "Quantity must be greater than zero",
+        message: "Return quantity must be greater than zero",
       });
     }
 
-    // -------------------------
-    // CHECK DEPARTMENT
-    // -------------------------
+    if (!isValidDate(returnDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return date",
+      });
+    }
+
+    if (!RETURN_CONDITIONS.includes(condition)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return condition",
+      });
+    }
+
+    if (!RETURN_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return status",
+      });
+    }
 
     const departmentExists =
-      await Department.findById(department);
+      await Department.findById(finalDepartment);
 
     if (!departmentExists) {
       return res.status(404).json({
@@ -283,10 +629,6 @@ export const createReturn = async (req, res) => {
         message: "Department not found",
       });
     }
-
-    // -------------------------
-    // CHECK INVENTORY
-    // -------------------------
 
     const inventoryItem =
       await Inventory.findById(inventory);
@@ -298,165 +640,128 @@ export const createReturn = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // CHECK STOCK OUT
-    // -------------------------
-
-    if (stockOut) {
-      const stockOutExists =
-        await StockOut.findById(stockOut);
-
-      if (!stockOutExists) {
-        return res.status(404).json({
-          success: false,
-          message: "Stock Out record not found",
-        });
-      }
-
-      if (
-        stockOutExists.inventory.toString() !==
-        inventory.toString()
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Stock Out inventory does not match the returned inventory item",
-        });
-      }
-
-      if (
-        parsedQuantity >
-        stockOutExists.quantity
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Return quantity cannot exceed the Stock Out quantity",
-        });
-      }
+    if (
+      !inventoryBelongsToDepartment(
+        inventoryItem,
+        finalDepartment,
+      )
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This inventory item does not belong to this department",
+      });
     }
 
-    // -------------------------
-    // RETURN NUMBER
-    // -------------------------
-
-    let finalReturnNo =
-      returnNo?.trim();
-
-    if (!finalReturnNo) {
-      finalReturnNo =
-        await generateReturnNo();
-    }
-
-    const duplicate =
-      await Return.findOne({
-        returnNo: finalReturnNo,
+    const stockOutValidation =
+      await validateStockOutReturn({
+        stockOutId: stockOut,
+        inventoryId: inventory,
+        departmentId: finalDepartment,
+        quantity: returnQuantity,
       });
 
-    if (duplicate) {
+    if (!stockOutValidation.valid) {
+      return res.status(stockOutValidation.status).json({
+        success: false,
+        message: stockOutValidation.message,
+        issuedQuantity: stockOutValidation.issuedQuantity,
+        alreadyReturned: stockOutValidation.alreadyReturned,
+        remainingQuantity: stockOutValidation.remainingQuantity,
+      });
+    }
+
+    const finalReturnNo =
+      returnNo?.trim() || (await generateReturnNo());
+
+    const existingReturn = await Return.findOne({
+      returnNo: finalReturnNo,
+    });
+
+    if (existingReturn) {
       return res.status(409).json({
         success: false,
         message: "Return number already exists",
       });
     }
 
-    // -------------------------
-    // CREATE RETURN
-    // -------------------------
+    const newReturn = await Return.create({
+      returnNo: finalReturnNo,
+      department: finalDepartment,
+      inventory,
+      stockOut,
+      quantity: returnQuantity,
+      returnDate,
+      returnedBy: returnedBy.trim(),
+      condition,
+      status,
+      receivedBy: receivedBy.trim(),
+      reason: reason.trim(),
+      remarks: remarks?.trim() || "",
+    });
 
-    const returnRecord =
-      await Return.create({
-        returnNo: finalReturnNo,
-        inventory,
-        department,
-        quantity: parsedQuantity,
-        returnDate,
-        returnedBy: returnedBy.trim(),
-        condition,
-        reason: reason.trim(),
-        stockOut: stockOut || null,
-        status: status || "Completed",
-        receivedBy: receivedBy.trim(),
-        remarks: remarks?.trim() || "",
-      });
-
-    // -------------------------
-    // UPDATE INVENTORY
-    // -------------------------
-
-    // A rejected return should not be added
-    // back into usable inventory.
-
+    // Rejected returns do not increase available stock.
     if (status !== "Rejected") {
-      inventoryItem.available +=
-        parsedQuantity;
-
-      if (
-        inventoryItem.available >
-        inventoryItem.quantity
-      ) {
-        inventoryItem.available =
-          inventoryItem.quantity;
-      }
-
-      inventoryItem.status =
-        calculateInventoryStatus(
-          inventoryItem.available,
-          inventoryItem.minimumStock
-        );
-
-      await inventoryItem.save();
+      await applyInventoryChanges({
+        newInventoryId: inventory,
+        newQuantity: returnQuantity,
+        newStatus: status,
+      });
     }
 
-    // -------------------------
-    // POPULATE RESPONSE
-    // -------------------------
+    const populatedReturn = await populateReturn(
+      Return.findById(newReturn._id),
+    );
 
-    const populatedReturn =
-      await Return.findById(
-        returnRecord._id
-      )
-        .populate(
-          "department",
-          "name departmentName code"
-        )
-        .populate(
-          "inventory",
-          "itemCode name category unit quantity available minimumStock status"
-        )
-        .populate(
-          "stockOut",
-          "stockOutNo issuedDate issuedTo quantity"
-        );
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: "Return created successfully",
+      message: "Return record created successfully",
       return: populatedReturn,
     });
   } catch (error) {
-    console.error(
-      "Create return error:",
-      error
-    );
+    console.error("Create Return Error:", error);
 
-    res.status(400).json({
+    return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to create return",
+      message: "Failed to create return record",
+      error: error.message,
     });
   }
 };
 
-// ======================================================
+// --------------------------------------------------
 // UPDATE RETURN
-// ======================================================
+// --------------------------------------------------
 
 export const updateReturn = async (req, res) => {
   try {
+    const admin = isAdmin(req);
+
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return ID",
+      });
+    }
+
+    const returnQuery = { _id: req.params.id };
+
+    if (!admin) {
+      const assignedDepartment =
+        await getAssignedDepartment(req);
+
+      if (!assignedDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "No department assigned to this user",
+        });
+      }
+
+      returnQuery.department = assignedDepartment._id;
+    }
+
     const returnRecord =
-      await Return.findById(req.params.id);
+      await Return.findOne(returnQuery);
 
     if (!returnRecord) {
       return res.status(404).json({
@@ -467,95 +772,122 @@ export const updateReturn = async (req, res) => {
 
     const {
       returnNo,
-      inventory,
       department,
+      inventory,
+      stockOut,
       quantity,
       returnDate,
       returnedBy,
       condition,
-      reason,
-      stockOut,
       status,
       receivedBy,
+      reason,
       remarks,
     } = req.body;
 
-    // -------------------------
-    // VALIDATION
-    // -------------------------
+    const finalDepartment = admin
+      ? department || getDocumentId(returnRecord.department)
+      : getDocumentId(returnRecord.department);
 
-    if (!inventory) {
+    const finalInventory =
+      inventory || getDocumentId(returnRecord.inventory);
+
+    const finalStockOut =
+      stockOut !== undefined
+        ? stockOut
+        : getDocumentId(returnRecord.stockOut);
+
+    const finalQuantity =
+      quantity !== undefined
+        ? Number(quantity)
+        : Number(returnRecord.quantity);
+
+    const finalReturnDate =
+      returnDate || returnRecord.returnDate;
+
+    const finalReturnedBy =
+      returnedBy !== undefined
+        ? String(returnedBy).trim()
+        : returnRecord.returnedBy;
+
+    const finalCondition =
+      condition || returnRecord.condition;
+
+    const finalStatus =
+      status || returnRecord.status;
+
+    const finalReceivedBy =
+      receivedBy !== undefined
+        ? String(receivedBy).trim()
+        : returnRecord.receivedBy;
+
+    const finalReason =
+      reason !== undefined
+        ? String(reason).trim()
+        : returnRecord.reason;
+
+    const finalRemarks =
+      remarks !== undefined
+        ? String(remarks).trim()
+        : returnRecord.remarks;
+
+    if (
+      !finalDepartment ||
+      !finalInventory ||
+      !finalReturnDate ||
+      !finalReturnedBy ||
+      !finalReceivedBy ||
+      !finalReason
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Inventory item is required",
-      });
-    }
-
-    if (!department) {
-      return res.status(400).json({
-        success: false,
-        message: "Department is required",
-      });
-    }
-
-    if (!returnDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Return date is required",
-      });
-    }
-
-    if (!returnedBy?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Returned By is required",
-      });
-    }
-
-    if (!reason?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Return reason is required",
-      });
-    }
-
-    if (!receivedBy?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Received By is required",
+        message: "Please provide all required fields",
       });
     }
 
     if (
-      !["Good", "Repair", "Damaged"].includes(
-        condition
-      )
+      !isValidObjectId(finalDepartment) ||
+      !isValidObjectId(finalInventory)
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Condition must be Good, Repair, or Damaged",
+        message: "Invalid department or inventory ID",
       });
     }
-
-    const parsedQuantity = Number(quantity);
 
     if (
-      !Number.isFinite(parsedQuantity) ||
-      parsedQuantity <= 0
+      !Number.isFinite(finalQuantity) ||
+      finalQuantity <= 0
     ) {
       return res.status(400).json({
         success: false,
-        message: "Quantity must be greater than zero",
+        message: "Return quantity must be greater than zero",
       });
     }
 
-    // -------------------------
-    // CHECK DEPARTMENT
-    // -------------------------
+    if (!isValidDate(finalReturnDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return date",
+      });
+    }
+
+    if (!RETURN_CONDITIONS.includes(finalCondition)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return condition",
+      });
+    }
+
+    if (!RETURN_STATUSES.includes(finalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return status",
+      });
+    }
 
     const departmentExists =
-      await Department.findById(department);
+      await Department.findById(finalDepartment);
 
     if (!departmentExists) {
       return res.status(404).json({
@@ -564,109 +896,8 @@ export const updateReturn = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // CHECK STOCK OUT
-    // -------------------------
-
-    if (stockOut) {
-      const stockOutExists =
-        await StockOut.findById(stockOut);
-
-      if (!stockOutExists) {
-        return res.status(404).json({
-          success: false,
-          message: "Stock Out record not found",
-        });
-      }
-
-      if (
-        stockOutExists.inventory.toString() !==
-        inventory.toString()
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Stock Out inventory does not match the returned inventory item",
-        });
-      }
-
-      if (
-        parsedQuantity >
-        stockOutExists.quantity
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Return quantity cannot exceed the Stock Out quantity",
-        });
-      }
-    }
-
-    // -------------------------
-    // RETURN NUMBER
-    // -------------------------
-
-    const finalReturnNo =
-      returnNo?.trim() ||
-      returnRecord.returnNo;
-
-    const duplicate =
-      await Return.findOne({
-        returnNo: finalReturnNo,
-        _id: {
-          $ne: returnRecord._id,
-        },
-      });
-
-    if (duplicate) {
-      return res.status(409).json({
-        success: false,
-        message: "Return number already exists",
-      });
-    }
-
-    // -------------------------
-    // RESTORE OLD INVENTORY
-    // -------------------------
-
-    const oldInventory =
-      await Inventory.findById(
-        returnRecord.inventory
-      );
-
-    // Only restore the old returned quantity
-    // if the old return was counted in inventory.
-
-    if (
-      oldInventory &&
-      returnRecord.status !== "Rejected"
-    ) {
-      oldInventory.available +=
-        returnRecord.quantity;
-
-      if (
-        oldInventory.available >
-        oldInventory.quantity
-      ) {
-        oldInventory.available =
-          oldInventory.quantity;
-      }
-
-      oldInventory.status =
-        calculateInventoryStatus(
-          oldInventory.available,
-          oldInventory.minimumStock
-        );
-
-      await oldInventory.save();
-    }
-
-    // -------------------------
-    // GET NEW INVENTORY
-    // -------------------------
-
     const newInventory =
-      await Inventory.findById(inventory);
+      await Inventory.findById(finalInventory);
 
     if (!newInventory) {
       return res.status(404).json({
@@ -675,120 +906,123 @@ export const updateReturn = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // APPLY NEW RETURN
-    // -------------------------
-
-    if (status !== "Rejected") {
-      newInventory.available +=
-        parsedQuantity;
-
-      if (
-        newInventory.available >
-        newInventory.quantity
-      ) {
-        newInventory.available =
-          newInventory.quantity;
-      }
-
-      newInventory.status =
-        calculateInventoryStatus(
-          newInventory.available,
-          newInventory.minimumStock
-        );
-
-      await newInventory.save();
+    if (
+      !inventoryBelongsToDepartment(
+        newInventory,
+        finalDepartment,
+      )
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This inventory item does not belong to this department",
+      });
     }
 
-    // -------------------------
-    // UPDATE RECORD
-    // -------------------------
+    const stockOutValidation =
+      await validateStockOutReturn({
+        stockOutId: finalStockOut,
+        inventoryId: finalInventory,
+        departmentId: finalDepartment,
+        quantity: finalQuantity,
+        excludeReturnId: returnRecord._id,
+      });
 
-    returnRecord.returnNo =
-      finalReturnNo;
+    if (!stockOutValidation.valid) {
+      return res.status(stockOutValidation.status).json({
+        success: false,
+        message: stockOutValidation.message,
+        issuedQuantity: stockOutValidation.issuedQuantity,
+        alreadyReturned: stockOutValidation.alreadyReturned,
+        remainingQuantity: stockOutValidation.remainingQuantity,
+      });
+    }
 
-    returnRecord.inventory =
-      inventory;
+    const finalReturnNo =
+      returnNo?.trim() || returnRecord.returnNo;
 
-    returnRecord.department =
-      department;
+    const duplicateReturn = await Return.findOne({
+      returnNo: finalReturnNo,
+      _id: { $ne: returnRecord._id },
+    });
 
-    returnRecord.quantity =
-      parsedQuantity;
+    if (duplicateReturn) {
+      return res.status(409).json({
+        success: false,
+        message: "Return number already exists",
+      });
+    }
 
-    returnRecord.returnDate =
-      returnDate;
+    // Reverse the old stock effect and apply the new one.
+    await applyInventoryChanges({
+      oldInventoryId: getDocumentId(
+        returnRecord.inventory,
+      ),
+      oldQuantity: Number(returnRecord.quantity),
+      oldStatus: returnRecord.status,
 
-    returnRecord.returnedBy =
-      returnedBy.trim();
+      newInventoryId: finalInventory,
+      newQuantity: finalQuantity,
+      newStatus: finalStatus,
+    });
 
-    returnRecord.condition =
-      condition;
-
-    returnRecord.reason =
-      reason.trim();
-
-    returnRecord.stockOut =
-      stockOut || null;
-
-    returnRecord.status =
-      status || "Completed";
-
-    returnRecord.receivedBy =
-      receivedBy.trim();
-
-    returnRecord.remarks =
-      remarks?.trim() || "";
+    returnRecord.returnNo = finalReturnNo;
+    returnRecord.department = finalDepartment;
+    returnRecord.inventory = finalInventory;
+    returnRecord.stockOut = finalStockOut;
+    returnRecord.quantity = finalQuantity;
+    returnRecord.returnDate = finalReturnDate;
+    returnRecord.returnedBy = finalReturnedBy;
+    returnRecord.condition = finalCondition;
+    returnRecord.status = finalStatus;
+    returnRecord.receivedBy = finalReceivedBy;
+    returnRecord.reason = finalReason;
+    returnRecord.remarks = finalRemarks;
 
     await returnRecord.save();
 
-    // -------------------------
-    // RESPONSE
-    // -------------------------
+    const updatedReturn = await populateReturn(
+      Return.findById(returnRecord._id),
+    );
 
-    const updatedReturn =
-      await Return.findById(
-        returnRecord._id
-      )
-        .populate(
-          "department",
-          "name departmentName code"
-        )
-        .populate(
-          "inventory",
-          "itemCode name category unit quantity available minimumStock status"
-        )
-        .populate(
-          "stockOut",
-          "stockOutNo issuedDate issuedTo quantity"
-        );
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Return updated successfully",
+      message: "Return record updated successfully",
       return: updatedReturn,
     });
   } catch (error) {
-    console.error(
-      "Update return error:",
-      error
-    );
+    console.error("Update Return Error:", error);
 
-    res.status(400).json({
+    return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to update return",
+      message: "Failed to update return record",
+      error: error.message,
     });
   }
 };
 
-// ======================================================
+// --------------------------------------------------
 // DELETE RETURN
-// ======================================================
+// ADMIN ONLY
+// --------------------------------------------------
 
 export const deleteReturn = async (req, res) => {
   try {
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only administrators can delete return records",
+      });
+    }
+
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid return ID",
+      });
+    }
+
     const returnRecord =
       await Return.findById(req.params.id);
 
@@ -799,65 +1033,30 @@ export const deleteReturn = async (req, res) => {
       });
     }
 
-    // -------------------------
-    // RESTORE INVENTORY
-    // -------------------------
-
+    // Reverse inventory changes only for accepted returns.
     if (returnRecord.status !== "Rejected") {
-      const inventory =
-        await Inventory.findById(
-          returnRecord.inventory
-        );
-
-      if (inventory) {
-        inventory.available -=
-          returnRecord.quantity;
-
-        if (inventory.available < 0) {
-          inventory.available = 0;
-        }
-
-        if (
-          inventory.available >
-          inventory.quantity
-        ) {
-          inventory.available =
-            inventory.quantity;
-        }
-
-        inventory.status =
-          calculateInventoryStatus(
-            inventory.available,
-            inventory.minimumStock
-          );
-
-        await inventory.save();
-      }
+      await applyInventoryChanges({
+        oldInventoryId: getDocumentId(
+          returnRecord.inventory,
+        ),
+        oldQuantity: Number(returnRecord.quantity),
+        oldStatus: returnRecord.status,
+      });
     }
 
-    // -------------------------
-    // DELETE
-    // -------------------------
+    await Return.findByIdAndDelete(req.params.id);
 
-    await Return.findByIdAndDelete(
-      req.params.id
-    );
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Return deleted successfully",
+      message: "Return record deleted successfully",
     });
   } catch (error) {
-    console.error(
-      "Delete return error:",
-      error
-    );
+    console.error("Delete Return Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message:
-        "Failed to delete return",
+      message: "Failed to delete return record",
+      error: error.message,
     });
   }
 };
-
