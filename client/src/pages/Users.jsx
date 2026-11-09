@@ -160,46 +160,38 @@ const Users = () => {
    */
 
   const filteredUsers = useMemo(() => {
-    const query = search.toLowerCase().trim();
+  const query = search.toLowerCase().trim();
 
-    return users.filter((user) => {
-      const departmentName =
-        user.department?.name ||
-        user.departmentName ||
-        "";
+  return users.filter((user) => {
+    // Do not display administrator users
+    if (user.role === "admin") return false;
 
-      const matchesSearch =
-        !query ||
-        user.name
-          ?.toLowerCase()
-          .includes(query) ||
-        user.email
-          ?.toLowerCase()
-          .includes(query) ||
-        departmentName
-          ?.toLowerCase()
-          .includes(query);
+    const departmentName =
+      user.department?.name ||
+      user.departmentName ||
+      "";
 
-      const matchesRole =
-        roleFilter === "All" ||
-        user.role === roleFilter;
+    const matchesSearch =
+      !query ||
+      user.name?.toLowerCase().includes(query) ||
+      user.email?.toLowerCase().includes(query) ||
+      departmentName?.toLowerCase().includes(query);
 
-      const matchesStatus =
-        statusFilter === "All" ||
-        user.status === statusFilter;
+    const matchesRole =
+      roleFilter === "All" ||
+      user.role === roleFilter;
 
-      return (
-        matchesSearch &&
-        matchesRole &&
-        matchesStatus
-      );
-    });
-  }, [
-    users,
-    search,
-    roleFilter,
-    statusFilter,
-  ]);
+    const matchesStatus =
+      statusFilter === "All" ||
+      user.status === statusFilter;
+
+    return (
+      matchesSearch &&
+      matchesRole &&
+      matchesStatus
+    );
+  });
+}, [users, search, roleFilter, statusFilter]);
 
   /*
    * --------------------------------------------------
