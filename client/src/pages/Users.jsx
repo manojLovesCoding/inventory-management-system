@@ -18,30 +18,18 @@ import toast from "react-hot-toast";
 
 import api from "../api/axios.js";
 
+// TEMPORARY FRONTEND PASSWORD
+const TEMP_ADMIN_PASSWORD = "admin@gfgc.com";
+
 const roles = [
-  {
-    value: "admin",
-    label: "Administrator",
-  },
-  {
-    value: "store",
-    label: "Store Manager",
-  },
-  {
-    value: "department",
-    label: "Department User",
-  },
+  { value: "admin", label: "Administrator" },
+  { value: "store", label: "Store Manager" },
+  { value: "department", label: "Department User" },
 ];
 
 const statusOptions = [
-  {
-    value: "active",
-    label: "Active",
-  },
-  {
-    value: "inactive",
-    label: "Inactive",
-  },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
 ];
 
 const emptyForm = {
@@ -68,16 +56,18 @@ const Users = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
 
-  const [formData, setFormData] = useState({
-    ...emptyForm,
-  });
+  // TEMPORARY PASSWORD VERIFICATION STATES
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
+  const [formData, setFormData] = useState({ ...emptyForm });
   const [openMenu, setOpenMenu] = useState(null);
 
   /*
-   * --------------------------------------------------
    * GET ALL USERS
-   * --------------------------------------------------
    */
 
   const fetchUsers = async () => {
@@ -85,28 +75,12 @@ const Users = () => {
       setLoading(true);
 
       const response = await api.get("/users");
+      const fetchedUsers = response.data?.users || response.data?.data || [];
 
-      const fetchedUsers =
-        response.data?.users ||
-        response.data?.data ||
-        [];
-
-      setUsers(
-        Array.isArray(fetchedUsers)
-          ? fetchedUsers
-          : []
-      );
+      setUsers(Array.isArray(fetchedUsers) ? fetchedUsers : []);
     } catch (error) {
-      console.error(
-        "Failed to fetch users:",
-        error
-      );
-
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to load users"
-      );
-
+      console.error("Failed to fetch users:", error);
+      toast.error(error.response?.data?.message || "Failed to load users");
       setUsers([]);
     } finally {
       setLoading(false);
@@ -114,9 +88,7 @@ const Users = () => {
   };
 
   /*
-   * --------------------------------------------------
    * GET ALL DEPARTMENTS
-   * --------------------------------------------------
    */
 
   const fetchDepartments = async () => {
@@ -124,24 +96,16 @@ const Users = () => {
       const response = await api.get("/departments");
 
       const fetchedDepartments =
-        response.data?.departments ||
-        response.data?.data ||
-        [];
+        response.data?.departments || response.data?.data || [];
 
       setDepartments(
-        Array.isArray(fetchedDepartments)
-          ? fetchedDepartments
-          : []
+        Array.isArray(fetchedDepartments) ? fetchedDepartments : [],
       );
     } catch (error) {
-      console.error(
-        "Failed to fetch departments:",
-        error
-      );
+      console.error("Failed to fetch departments:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to load departments"
+        error.response?.data?.message || "Failed to load departments",
       );
 
       setDepartments([]);
@@ -154,69 +118,52 @@ const Users = () => {
   }, []);
 
   /*
-   * --------------------------------------------------
    * FILTER USERS
-   * --------------------------------------------------
    */
 
   const filteredUsers = useMemo(() => {
-  const query = search.toLowerCase().trim();
+    const query = search.toLowerCase().trim();
 
-  return users.filter((user) => {
-    // Do not display administrator users
-    if (user.role === "admin") return false;
+    return users.filter((user) => {
+      if (user.role === "admin") return false;
 
-    const departmentName =
-      user.department?.name ||
-      user.departmentName ||
-      "";
+      const departmentName = user.department?.name || user.departmentName || "";
 
-    const matchesSearch =
-      !query ||
-      user.name?.toLowerCase().includes(query) ||
-      user.email?.toLowerCase().includes(query) ||
-      departmentName?.toLowerCase().includes(query);
+      const matchesSearch =
+        !query ||
+        user.name?.toLowerCase().includes(query) ||
+        user.email?.toLowerCase().includes(query) ||
+        departmentName?.toLowerCase().includes(query);
 
-    const matchesRole =
-      roleFilter === "All" ||
-      user.role === roleFilter;
+      const matchesRole = roleFilter === "All" || user.role === roleFilter;
 
-    const matchesStatus =
-      statusFilter === "All" ||
-      user.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "All" || user.status === statusFilter;
 
-    return (
-      matchesSearch &&
-      matchesRole &&
-      matchesStatus
-    );
-  });
-}, [users, search, roleFilter, statusFilter]);
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [users, search, roleFilter, statusFilter]);
 
   /*
-   * --------------------------------------------------
    * SUMMARY
-   * --------------------------------------------------
    */
 
-  const totalUsers = users.length;
+  const visibleUsers = users.filter((user) => user.role !== "admin");
 
-  const activeUsers = users.filter(
-    (user) => user.status === "active"
+  const totalUsers = visibleUsers.length;
+
+  const activeUsers = visibleUsers.filter(
+    (user) => user.status === "active",
   ).length;
 
-  const inactiveUsers = users.filter(
-    (user) => user.status === "inactive"
+  const inactiveUsers = visibleUsers.filter(
+    (user) => user.status === "inactive",
   ).length;
 
-  const adminUsers = users.filter(
-    (user) => user.role === "admin"
-  ).length;
+  const adminUsers = users.filter((user) => user.role === "admin").length;
 
   /*
-   * --------------------------------------------------
    * HELPERS
-   * --------------------------------------------------
    */
 
   const getInitials = (name) => {
@@ -232,17 +179,12 @@ const Users = () => {
   };
 
   const getRoleLabel = (role) => {
-    const foundRole = roles.find(
-      (item) => item.value === role
-    );
-
+    const foundRole = roles.find((item) => item.value === role);
     return foundRole?.label || role;
   };
 
   const getStatusLabel = (status) => {
-    const foundStatus = statusOptions.find(
-      (item) => item.value === status
-    );
+    const foundStatus = statusOptions.find((item) => item.value === status);
 
     return foundStatus?.label || status;
   };
@@ -251,55 +193,34 @@ const Users = () => {
     switch (role) {
       case "admin":
         return "bg-purple-50 text-purple-700 border-purple-100";
-
       case "store":
         return "bg-indigo-50 text-indigo-700 border-indigo-100";
-
       case "department":
         return "bg-amber-50 text-amber-700 border-amber-100";
-
       default:
         return "bg-slate-50 text-slate-600 border-slate-200";
     }
   };
 
   const getDepartmentName = (user) => {
-    if (!user?.department) {
-      return "Not assigned";
-    }
+    if (!user?.department) return "Not assigned";
 
     if (typeof user.department === "object") {
-      return (
-        user.department.name ||
-        user.department.code ||
-        "Not assigned"
-      );
+      return user.department.name || user.department.code || "Not assigned";
     }
 
-    const department = departments.find(
-      (item) => item._id === user.department
-    );
+    const department = departments.find((item) => item._id === user.department);
 
-    return (
-      department?.name ||
-      department?.code ||
-      "Not assigned"
-    );
+    return department?.name || department?.code || "Not assigned";
   };
 
   /*
-   * --------------------------------------------------
-   * MODAL
-   * --------------------------------------------------
+   * ADD / EDIT MODAL
    */
 
   const openAddModal = () => {
     setEditingUser(null);
-
-    setFormData({
-      ...emptyForm,
-    });
-
+    setFormData({ ...emptyForm });
     setShowModal(true);
     setOpenMenu(null);
   };
@@ -313,10 +234,7 @@ const Users = () => {
       password: "",
       role: user.role || "department",
       status: user.status || "active",
-      department:
-        user.department?._id ||
-        user.department ||
-        "",
+      department: user.department?._id || user.department || "",
     });
 
     setShowModal(true);
@@ -328,16 +246,135 @@ const Users = () => {
 
     setShowModal(false);
     setEditingUser(null);
-
-    setFormData({
-      ...emptyForm,
-    });
+    setFormData({ ...emptyForm });
   };
 
   /*
-   * --------------------------------------------------
-   * FORM
-   * --------------------------------------------------
+   * TEMPORARY ADMIN PASSWORD VERIFICATION
+   * FRONTEND ONLY
+   */
+
+  // Open password verification for a specific action.
+  const requestPasswordVerification = (type, user) => {
+    setPendingAction({ type, user });
+    setAdminPassword("");
+    setPasswordError("");
+    setShowPassword(false);
+    setShowPasswordModal(true);
+    setOpenMenu(null);
+  };
+
+  // Edit requires password verification.
+  const requestEditUser = (user) => {
+    requestPasswordVerification("edit", user);
+  };
+
+  // Deactivation requires verification.
+  // Activation does not require verification.
+  const requestToggleUserStatus = (user) => {
+    if (user.status === "active") {
+      requestPasswordVerification("deactivate", user);
+    } else {
+      toggleUserStatus(user._id);
+      setOpenMenu(null);
+    }
+  };
+
+  // Deletion requires password verification.
+  const requestDeleteUser = (user) => {
+    requestPasswordVerification("delete", user);
+  };
+
+  const handleVerifyPassword = (e) => {
+    e.preventDefault();
+
+    if (!adminPassword.trim()) {
+      setPasswordError("Please enter your password");
+      return;
+    }
+
+    if (adminPassword !== TEMP_ADMIN_PASSWORD) {
+      setPasswordError("Incorrect password. Please try again.");
+      return;
+    }
+
+    const action = pendingAction;
+
+    // Close and reset verification modal.
+    setShowPasswordModal(false);
+    setAdminPassword("");
+    setPasswordError("");
+    setShowPassword(false);
+    setPendingAction(null);
+
+    if (!action?.user) return;
+
+    toast.success("Password verified successfully");
+
+    // Continue with the requested action.
+    switch (action.type) {
+      case "edit":
+        openEditModal(action.user);
+        break;
+
+      case "deactivate":
+        toggleUserStatus(action.user._id);
+        break;
+
+      case "delete":
+        deleteUser(action.user._id);
+        break;
+
+      default:
+        break;
+    }
+  };
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setPendingAction(null);
+    setAdminPassword("");
+    setPasswordError("");
+    setShowPassword(false);
+  };
+
+  const getPasswordModalText = () => {
+    switch (pendingAction?.type) {
+      case "edit":
+        return {
+          title: "Verify Administrator",
+          description: "Enter your password to continue editing this user.",
+          message:
+            "Administrator verification is required before editing user information.",
+        };
+
+      case "deactivate":
+        return {
+          title: "Verify Administrator",
+          description: "Enter your password to deactivate this user.",
+          message:
+            "Administrator verification is required before deactivating a user account.",
+        };
+
+      case "delete":
+        return {
+          title: "Verify Administrator",
+          description: "Enter your password to continue deleting this user.",
+          message:
+            "Administrator verification is required before deleting a user account.",
+        };
+
+      default:
+        return {
+          title: "Verify Administrator",
+          description: "Enter your administrator password to continue.",
+          message: "Administrator verification is required to continue.",
+        };
+    }
+  };
+
+  /*
+   * FORM CHANGE
    */
 
   const handleChange = (field, value) => {
@@ -347,14 +384,7 @@ const Users = () => {
         [field]: value,
       };
 
-      /*
-       * Department is only applicable
-       * to Department Users.
-       */
-      if (
-        field === "role" &&
-        value !== "department"
-      ) {
+      if (field === "role" && value !== "department") {
         updated.department = "";
       }
 
@@ -363,295 +393,156 @@ const Users = () => {
   };
 
   /*
-   * --------------------------------------------------
-   * SUBMIT USER
-   * --------------------------------------------------
+   * CREATE / UPDATE USER
    */
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    /*
-     * NAME
-     */
 
     if (!formData.name.trim()) {
       toast.error("Please enter user name");
       return;
     }
 
-    /*
-     * EMAIL
-     */
-
     if (!formData.email.trim()) {
       toast.error("Please enter email address");
       return;
     }
-
-    /*
-     * PASSWORD
-     */
 
     if (!editingUser && !formData.password) {
       toast.error("Please enter password");
       return;
     }
 
-    if (
-      !editingUser &&
-      formData.password.length < 6
-    ) {
-      toast.error(
-        "Password must be at least 6 characters"
-      );
+    if (!editingUser && formData.password.length < 6) {
+      toast.error("Password must be at least 6 characters");
       return;
     }
 
-    if (
-      editingUser &&
-      formData.password &&
-      formData.password.length < 6
-    ) {
-      toast.error(
-        "Password must be at least 6 characters"
-      );
+    if (editingUser && formData.password && formData.password.length < 6) {
+      toast.error("Password must be at least 6 characters");
       return;
     }
 
-    /*
-     * ROLE
-     */
-
-    if (
-      !["admin", "store", "department"].includes(
-        formData.role
-      )
-    ) {
+    if (!["admin", "store", "department"].includes(formData.role)) {
       toast.error("Please select a valid role");
       return;
     }
 
-    /*
-     * DEPARTMENT
-     *
-     * Required for Department Users.
-     */
-
-    if (
-      formData.role === "department" &&
-      !formData.department
-    ) {
-      toast.error(
-        "Please assign a department to this user"
-      );
+    if (formData.role === "department" && !formData.department) {
+      toast.error("Please assign a department to this user");
       return;
     }
 
     try {
       setSubmitting(true);
 
-      /*
-       * ------------------------------------------------
-       * CREATE USER
-       * POST /api/users
-       * ------------------------------------------------
-       */
-
       if (!editingUser) {
         const payload = {
           name: formData.name.trim(),
-          email: formData.email
-            .trim()
-            .toLowerCase(),
+          email: formData.email.trim().toLowerCase(),
           password: formData.password,
           role: formData.role,
           status: formData.status,
-
-          /*
-           * Only department users get
-           * a department assignment.
-           */
           department:
-            formData.role === "department"
-              ? formData.department
-              : null,
+            formData.role === "department" ? formData.department : null,
         };
 
-        const response = await api.post(
-          "/users",
-          payload
-        );
+        const response = await api.post("/users", payload);
 
-        const createdUser =
-          response.data?.user ||
-          response.data?.data;
+        const createdUser = response.data?.user || response.data?.data;
 
         if (createdUser) {
-          setUsers((prev) => [
-            createdUser,
-            ...prev,
-          ]);
+          setUsers((prev) => [createdUser, ...prev]);
         } else {
           await fetchUsers();
         }
 
-        toast.success(
-          response.data?.message ||
-            "User added successfully"
-        );
-      }
-
-      /*
-       * ------------------------------------------------
-       * UPDATE USER
-       * PUT /api/users/:id
-       * ------------------------------------------------
-       */
-
-      else {
+        toast.success(response.data?.message || "User added successfully");
+      } else {
         const payload = {
           name: formData.name.trim(),
-          email: formData.email
-            .trim()
-            .toLowerCase(),
+          email: formData.email.trim().toLowerCase(),
           role: formData.role,
           status: formData.status,
-
-          /*
-           * Remove department assignment when
-           * changing the user to another role.
-           */
           department:
-            formData.role === "department"
-              ? formData.department
-              : null,
+            formData.role === "department" ? formData.department : null,
         };
 
-        /*
-         * Only send password if a new one
-         * has been entered.
-         */
-
         if (formData.password) {
-          payload.password =
-            formData.password;
+          payload.password = formData.password;
         }
 
-        const response = await api.put(
-          `/users/${editingUser._id}`,
-          payload
-        );
+        const response = await api.put(`/users/${editingUser._id}`, payload);
 
-        const updatedUser =
-          response.data?.user ||
-          response.data?.data;
+        const updatedUser = response.data?.user || response.data?.data;
 
         if (updatedUser) {
           setUsers((prev) =>
             prev.map((user) =>
-              user._id === editingUser._id
-                ? updatedUser
-                : user
-            )
+              user._id === editingUser._id ? updatedUser : user,
+            ),
           );
         } else {
           await fetchUsers();
         }
 
-        toast.success(
-          response.data?.message ||
-            "User updated successfully"
-        );
+        toast.success(response.data?.message || "User updated successfully");
       }
 
       closeModal();
     } catch (error) {
-      console.error(
-        "Failed to save user:",
-        error
-      );
-
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to save user"
-      );
+      console.error("Failed to save user:", error);
+      toast.error(error.response?.data?.message || "Failed to save user");
     } finally {
       setSubmitting(false);
     }
   };
 
   /*
-   * --------------------------------------------------
-   * TOGGLE STATUS
+   * TOGGLE USER STATUS
    * PATCH /api/users/:id/status
-   * --------------------------------------------------
    */
 
   const toggleUserStatus = async (userId) => {
-    const target = users.find(
-      (user) => user._id === userId
-    );
+    const target = users.find((user) => user._id === userId);
 
     if (!target) return;
 
-    const newStatus =
-      target.status === "active"
-        ? "inactive"
-        : "active";
+    const newStatus = target.status === "active" ? "inactive" : "active";
 
     try {
       setActionLoading(userId);
 
-      const response = await api.patch(
-        `/users/${userId}/status`,
-        {
-          status: newStatus,
-        }
-      );
+      const response = await api.patch(`/users/${userId}/status`, {
+        status: newStatus,
+      });
 
-      const updatedUser =
-        response.data?.user ||
-        response.data?.data;
+      const updatedUser = response.data?.user || response.data?.data;
 
       if (updatedUser) {
         setUsers((prev) =>
-          prev.map((user) =>
-            user._id === userId
-              ? updatedUser
-              : user
-          )
+          prev.map((user) => (user._id === userId ? updatedUser : user)),
         );
       } else {
         setUsers((prev) =>
           prev.map((user) =>
-            user._id === userId
-              ? {
-                  ...user,
-                  status: newStatus,
-                }
-              : user
-          )
+            user._id === userId ? { ...user, status: newStatus } : user,
+          ),
         );
       }
 
       toast.success(
         response.data?.message ||
-          (newStatus === "active"
-            ? "User activated"
-            : "User deactivated")
+          (newStatus === "active" ? "User activated" : "User deactivated"),
       );
 
       setOpenMenu(null);
     } catch (error) {
-      console.error(
-        "Failed to update user status:",
-        error
-      );
+      console.error("Failed to update user status:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to update user status"
+        error.response?.data?.message || "Failed to update user status",
       );
     } finally {
       setActionLoading(null);
@@ -659,30 +550,24 @@ const Users = () => {
   };
 
   /*
-   * --------------------------------------------------
    * DELETE USER
    * DELETE /api/users/:id
-   * --------------------------------------------------
    */
 
   const deleteUser = async (userId) => {
-    const target = users.find(
-      (user) => user._id === userId
-    );
+    const target = users.find((user) => user._id === userId);
 
     if (!target) return;
 
     if (target.role === "admin") {
-      toast.error(
-        "Administrator users cannot be deleted"
-      );
-
+      toast.error("Administrator users cannot be deleted");
       setOpenMenu(null);
       return;
     }
 
+    // Ask for confirmation only after password verification.
     const confirmed = window.confirm(
-      `Are you sure you want to delete ${target.name}?`
+      `Are you sure you want to delete ${target.name}?`,
     );
 
     if (!confirmed) return;
@@ -690,41 +575,22 @@ const Users = () => {
     try {
       setActionLoading(userId);
 
-      const response = await api.delete(
-        `/users/${userId}`
-      );
+      const response = await api.delete(`/users/${userId}`);
 
-      setUsers((prev) =>
-        prev.filter(
-          (user) => user._id !== userId
-        )
-      );
+      setUsers((prev) => prev.filter((user) => user._id !== userId));
 
-      toast.success(
-        response.data?.message ||
-          "User deleted successfully"
-      );
-
+      toast.success(response.data?.message || "User deleted successfully");
       setOpenMenu(null);
     } catch (error) {
-      console.error(
-        "Failed to delete user:",
-        error
-      );
-
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to delete user"
-      );
+      console.error("Failed to delete user:", error);
+      toast.error(error.response?.data?.message || "Failed to delete user");
     } finally {
       setActionLoading(null);
     }
   };
 
   /*
-   * --------------------------------------------------
    * CLEAR FILTERS
-   * --------------------------------------------------
    */
 
   const clearFilters = () => {
@@ -734,19 +600,17 @@ const Users = () => {
   };
 
   /*
-   * --------------------------------------------------
    * RENDER
-   * --------------------------------------------------
    */
+
+  const passwordModalText = getPasswordModalText();
 
   return (
     <>
       <div
         className="space-y-6"
         onClick={() => {
-          if (openMenu) {
-            setOpenMenu(null);
-          }
+          if (openMenu) setOpenMenu(null);
         }}
       >
         {/* HEADER */}
@@ -758,13 +622,9 @@ const Users = () => {
             </div>
 
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Users
-              </h1>
-
+              <h1 className="text-2xl font-bold text-slate-900">Users</h1>
               <p className="text-sm text-slate-500 mt-1">
-                Manage system users, roles, departments
-                and access status.
+                Manage system users, roles, departments and access status.
               </p>
             </div>
           </div>
@@ -785,15 +645,12 @@ const Users = () => {
         {/* SUMMARY CARDS */}
 
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          {/* TOTAL */}
-
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">
                   Total Users
                 </p>
-
                 <p className="text-2xl font-bold text-slate-900 mt-1">
                   {totalUsers}
                 </p>
@@ -805,15 +662,12 @@ const Users = () => {
             </div>
           </div>
 
-          {/* ACTIVE */}
-
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">
                   Active Users
                 </p>
-
                 <p className="text-2xl font-bold text-emerald-600 mt-1">
                   {activeUsers}
                 </p>
@@ -825,15 +679,12 @@ const Users = () => {
             </div>
           </div>
 
-          {/* INACTIVE */}
-
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">
                   Inactive Users
                 </p>
-
                 <p className="text-2xl font-bold text-rose-600 mt-1">
                   {inactiveUsers}
                 </p>
@@ -845,15 +696,12 @@ const Users = () => {
             </div>
           </div>
 
-          {/* ADMINS */}
-
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">
                   Administrators
                 </p>
-
                 <p className="text-2xl font-bold text-purple-600 mt-1">
                   {adminUsers}
                 </p>
@@ -871,82 +719,48 @@ const Users = () => {
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="p-4">
             <div className="flex flex-col lg:flex-row gap-3">
-              {/* SEARCH */}
-
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 
                 <input
                   type="text"
                   value={search}
-                  onChange={(e) =>
-                    setSearch(e.target.value)
-                  }
-                  onClick={(e) =>
-                    e.stopPropagation()
-                  }
+                  onChange={(e) => setSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
                   placeholder="Search by name, email or department..."
                   className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                 />
               </div>
 
-              {/* ROLE */}
-
               <select
                 value={roleFilter}
-                onChange={(e) =>
-                  setRoleFilter(e.target.value)
-                }
-                onClick={(e) =>
-                  e.stopPropagation()
-                }
+                onChange={(e) => setRoleFilter(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 className="lg:w-52 px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
               >
-                <option value="All">
-                  All Roles
-                </option>
-
+                <option value="All">All Roles</option>
                 {roles.map((role) => (
-                  <option
-                    key={role.value}
-                    value={role.value}
-                  >
+                  <option key={role.value} value={role.value}>
                     {role.label}
                   </option>
                 ))}
               </select>
 
-              {/* STATUS */}
-
               <select
                 value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value)
-                }
-                onClick={(e) =>
-                  e.stopPropagation()
-                }
+                onChange={(e) => setStatusFilter(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 className="lg:w-40 px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500"
               >
-                <option value="All">
-                  All Status
-                </option>
-
+                <option value="All">All Status</option>
                 {statusOptions.map((status) => (
-                  <option
-                    key={status.value}
-                    value={status.value}
-                  >
+                  <option key={status.value} value={status.value}>
                     {status.label}
                   </option>
                 ))}
               </select>
 
-              {/* CLEAR */}
-
-              {(search ||
-                roleFilter !== "All" ||
-                statusFilter !== "All") && (
+              {(search || roleFilter !== "All" || statusFilter !== "All") && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -970,7 +784,7 @@ const Users = () => {
               </span>{" "}
               of{" "}
               <span className="font-semibold text-slate-600">
-                {users.length}
+                {visibleUsers.length}
               </span>{" "}
               users
             </p>
@@ -983,10 +797,7 @@ const Users = () => {
           {loading ? (
             <div className="py-16 px-5 text-center">
               <div className="w-8 h-8 mx-auto border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-
-              <p className="mt-4 text-sm text-slate-500">
-                Loading users...
-              </p>
+              <p className="mt-4 text-sm text-slate-500">Loading users...</p>
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="py-16 px-5 text-center">
@@ -999,12 +810,12 @@ const Users = () => {
               </h3>
 
               <p className="mt-1 text-xs text-slate-400">
-                {users.length === 0
+                {visibleUsers.length === 0
                   ? "No users have been added yet. Click Add User to create one."
                   : "Try changing your search or filter options."}
               </p>
 
-              {users.length === 0 && (
+              {visibleUsers.length === 0 && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1029,27 +840,21 @@ const Users = () => {
                       <th className="text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         User
                       </th>
-
                       <th className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Email
                       </th>
-
                       <th className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Role
                       </th>
-
                       <th className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Department
                       </th>
-
                       <th className="text-center px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Status
                       </th>
-
                       <th className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Created
                       </th>
-
                       <th className="w-12" />
                     </tr>
                   </thead>
@@ -1060,15 +865,11 @@ const Users = () => {
                         key={user._id}
                         className="hover:bg-slate-50/60 transition-colors"
                       >
-                        {/* USER */}
-
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
                               <span className="text-xs font-semibold text-indigo-600">
-                                {getInitials(
-                                  user.name
-                                )}
+                                {getInitials(user.name)}
                               </span>
                             </div>
 
@@ -1076,7 +877,6 @@ const Users = () => {
                               <p className="text-sm font-medium text-slate-800">
                                 {user.name}
                               </p>
-
                               <p className="text-[10px] text-slate-400 mt-0.5">
                                 {user._id}
                               </p>
@@ -1084,116 +884,79 @@ const Users = () => {
                           </div>
                         </td>
 
-                        {/* EMAIL */}
-
                         <td className="px-3 py-4">
                           <div className="flex items-center gap-1.5">
                             <Mail className="w-3.5 h-3.5 text-slate-400" />
-
                             <span className="text-xs text-slate-600">
                               {user.email}
                             </span>
                           </div>
                         </td>
 
-                        {/* ROLE */}
-
                         <td className="px-3 py-4">
                           <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full border text-[10px] font-medium ${getRoleStyle(
-                              user.role
-                            )}`}
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full border text-[10px] font-medium ${getRoleStyle(user.role)}`}
                           >
-                            {getRoleLabel(
-                              user.role
-                            )}
+                            {getRoleLabel(user.role)}
                           </span>
                         </td>
 
-                        {/* DEPARTMENT */}
-
                         <td className="px-3 py-4">
-                          {user.role ===
-                          "department" ? (
+                          {user.role === "department" ? (
                             <div className="flex items-center gap-1.5">
                               <Building2 className="w-3.5 h-3.5 text-slate-400" />
-
                               <span className="text-xs text-slate-600">
-                                {getDepartmentName(
-                                  user
-                                )}
+                                {getDepartmentName(user)}
                               </span>
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-400">
-                              -
-                            </span>
+                            <span className="text-xs text-slate-400">-</span>
                           )}
                         </td>
-
-                        {/* STATUS */}
 
                         <td className="px-3 py-4 text-center">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium ${
-                              user.status ===
-                              "active"
+                              user.status === "active"
                                 ? "bg-emerald-50 text-emerald-700"
                                 : "bg-rose-50 text-rose-700"
                             }`}
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                user.status ===
-                                "active"
+                                user.status === "active"
                                   ? "bg-emerald-500"
                                   : "bg-rose-500"
                               }`}
                             />
-
-                            {getStatusLabel(
-                              user.status
-                            )}
+                            {getStatusLabel(user.status)}
                           </span>
                         </td>
-
-                        {/* CREATED */}
 
                         <td className="px-3 py-4">
                           <span className="text-xs text-slate-500">
                             {user.createdAt
-                              ? new Date(
-                                  user.createdAt
-                                ).toLocaleDateString(
+                              ? new Date(user.createdAt).toLocaleDateString(
                                   "en-IN",
                                   {
                                     day: "2-digit",
                                     month: "short",
                                     year: "numeric",
-                                  }
+                                  },
                                 )
                               : "-"}
                           </span>
                         </td>
 
-                        {/* ACTIONS */}
-
                         <td className="px-3 py-4">
                           <div className="relative">
                             <button
                               type="button"
-                              disabled={
-                                actionLoading ===
-                                user._id
-                              }
+                              disabled={actionLoading === user._id}
                               onClick={(e) => {
                                 e.stopPropagation();
-
                                 setOpenMenu(
-                                  openMenu ===
-                                    user._id
-                                    ? null
-                                    : user._id
+                                  openMenu === user._id ? null : user._id,
                                 );
                               }}
                               className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50"
@@ -1201,23 +964,13 @@ const Users = () => {
                               <MoreVertical className="w-4 h-4" />
                             </button>
 
-                            {openMenu ===
-                              user._id && (
+                            {openMenu === user._id && (
                               <ActionMenu
                                 user={user}
-                                onEdit={
-                                  openEditModal
-                                }
-                                onToggle={
-                                  toggleUserStatus
-                                }
-                                onDelete={
-                                  deleteUser
-                                }
-                                loading={
-                                  actionLoading ===
-                                  user._id
-                                }
+                                onEdit={requestEditUser}
+                                onToggle={requestToggleUserStatus}
+                                onDelete={requestDeleteUser}
+                                loading={actionLoading === user._id}
                               />
                             )}
                           </div>
@@ -1240,9 +993,7 @@ const Users = () => {
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
                           <span className="text-xs font-semibold text-indigo-600">
-                            {getInitials(
-                              user.name
-                            )}
+                            {getInitials(user.name)}
                           </span>
                         </div>
 
@@ -1250,7 +1001,6 @@ const Users = () => {
                           <p className="text-sm font-semibold text-slate-800 truncate">
                             {user.name}
                           </p>
-
                           <p className="text-[10px] text-slate-400 mt-0.5 break-all">
                             {user.email}
                           </p>
@@ -1260,18 +1010,11 @@ const Users = () => {
                       <div className="relative">
                         <button
                           type="button"
-                          disabled={
-                            actionLoading ===
-                            user._id
-                          }
+                          disabled={actionLoading === user._id}
                           onClick={(e) => {
                             e.stopPropagation();
-
                             setOpenMenu(
-                              openMenu ===
-                                user._id
-                                ? null
-                                : user._id
+                              openMenu === user._id ? null : user._id,
                             );
                           }}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50"
@@ -1279,104 +1022,70 @@ const Users = () => {
                           <MoreVertical className="w-4 h-4" />
                         </button>
 
-                        {openMenu ===
-                          user._id && (
+                        {openMenu === user._id && (
                           <ActionMenu
                             user={user}
-                            onEdit={
-                              openEditModal
-                            }
-                            onToggle={
-                              toggleUserStatus
-                            }
-                            onDelete={
-                              deleteUser
-                            }
-                            loading={
-                              actionLoading ===
-                              user._id
-                            }
+                            onEdit={requestEditUser}
+                            onToggle={requestToggleUserStatus}
+                            onDelete={requestDeleteUser}
+                            loading={actionLoading === user._id}
                           />
                         )}
                       </div>
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* ROLE */}
-
                       <div>
                         <p className="text-[10px] uppercase tracking-wide text-slate-400">
                           Role
                         </p>
-
                         <div className="mt-1">
                           <span
-                            className={`inline-flex px-2.5 py-1 rounded-full border text-[10px] font-medium ${getRoleStyle(
-                              user.role
-                            )}`}
+                            className={`inline-flex px-2.5 py-1 rounded-full border text-[10px] font-medium ${getRoleStyle(user.role)}`}
                           >
-                            {getRoleLabel(
-                              user.role
-                            )}
+                            {getRoleLabel(user.role)}
                           </span>
                         </div>
                       </div>
-
-                      {/* DEPARTMENT */}
 
                       <div>
                         <p className="text-[10px] uppercase tracking-wide text-slate-400">
                           Department
                         </p>
-
                         <div className="mt-1 flex items-center gap-1.5">
-                          {user.role ===
-                          "department" ? (
+                          {user.role === "department" ? (
                             <>
                               <Building2 className="w-3.5 h-3.5 text-slate-400" />
-
                               <span className="text-xs text-slate-600">
-                                {getDepartmentName(
-                                  user
-                                )}
+                                {getDepartmentName(user)}
                               </span>
                             </>
                           ) : (
-                            <span className="text-xs text-slate-400">
-                              -
-                            </span>
+                            <span className="text-xs text-slate-400">-</span>
                           )}
                         </div>
                       </div>
-
-                      {/* STATUS */}
 
                       <div>
                         <p className="text-[10px] uppercase tracking-wide text-slate-400">
                           Status
                         </p>
-
                         <div className="mt-1">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium ${
-                              user.status ===
-                              "active"
+                              user.status === "active"
                                 ? "bg-emerald-50 text-emerald-700"
                                 : "bg-rose-50 text-rose-700"
                             }`}
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                user.status ===
-                                "active"
+                                user.status === "active"
                                   ? "bg-emerald-500"
                                   : "bg-rose-500"
                               }`}
                             />
-
-                            {getStatusLabel(
-                              user.status
-                            )}
+                            {getStatusLabel(user.status)}
                           </span>
                         </div>
                       </div>
@@ -1386,15 +1095,13 @@ const Users = () => {
                       <span className="text-[10px] text-slate-400">
                         Created{" "}
                         {user.createdAt
-                          ? new Date(
-                              user.createdAt
-                            ).toLocaleDateString(
+                          ? new Date(user.createdAt).toLocaleDateString(
                               "en-IN",
                               {
                                 day: "2-digit",
                                 month: "short",
                                 year: "numeric",
-                              }
+                              },
                             )
                           : "-"}
                       </span>
@@ -1411,28 +1118,126 @@ const Users = () => {
         </section>
       </div>
 
+      {/* TEMPORARY ADMIN PASSWORD VERIFICATION MODAL */}
+
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+            onClick={closePasswordModal}
+          />
+
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-indigo-600" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {passwordModalText.title}
+                  </h2>
+
+                  <p className="text-xs text-slate-400 mt-1">
+                    {passwordModalText.description}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePasswordModal}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleVerifyPassword}>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Administrator Password
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={adminPassword}
+                      onChange={(e) => {
+                        setAdminPassword(e.target.value);
+                        setPasswordError("");
+                      }}
+                      placeholder="Enter administrator password"
+                      autoComplete="current-password"
+                      autoFocus
+                      className={`w-full px-3 py-2.5 pr-16 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/10 ${
+                        passwordError
+                          ? "border-rose-400 focus:border-rose-500"
+                          : "border-slate-200 focus:border-indigo-500"
+                      }`}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+
+                  {passwordError && (
+                    <p className="text-xs text-rose-500 mt-2">
+                      {passwordError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-100">
+                  <p className="text-xs text-amber-700 leading-relaxed">
+                    {passwordModalText.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-white"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+                >
+                  <Shield className="w-4 h-4" />
+                  Verify & Continue
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ADD / EDIT MODAL */}
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          {/* OVERLAY */}
-
           <div
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
             onClick={closeModal}
           />
 
-          {/* MODAL */}
-
           <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-            {/* HEADER */}
-
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  {editingUser
-                    ? "Edit User"
-                    : "Add User"}
+                  {editingUser ? "Edit User" : "Add User"}
                 </h2>
 
                 <p className="text-xs text-slate-400 mt-1">
@@ -1452,8 +1257,6 @@ const Users = () => {
               </button>
             </div>
 
-            {/* FORM */}
-
             <form onSubmit={handleSubmit}>
               <div className="p-6 space-y-5">
                 {/* NAME */}
@@ -1461,20 +1264,13 @@ const Users = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Full Name
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <input
                     type="text"
                     value={formData.name}
-                    onChange={(e) =>
-                      handleChange(
-                        "name",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => handleChange("name", e.target.value)}
                     placeholder="Enter full name"
                     disabled={submitting}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
@@ -1486,20 +1282,13 @@ const Users = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Email Address
-                    <span className="text-rose-500 ml-1">
-                      *
-                    </span>
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
 
                   <input
                     type="email"
                     value={formData.email}
-                    onChange={(e) =>
-                      handleChange(
-                        "email",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => handleChange("email", e.target.value)}
                     placeholder="user@example.com"
                     disabled={submitting}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 disabled:bg-slate-50"
@@ -1510,26 +1299,16 @@ const Users = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    {editingUser
-                      ? "New Password"
-                      : "Password"}
-
+                    {editingUser ? "New Password" : "Password"}
                     {!editingUser && (
-                      <span className="text-rose-500 ml-1">
-                        *
-                      </span>
+                      <span className="text-rose-500 ml-1">*</span>
                     )}
                   </label>
 
                   <input
                     type="password"
                     value={formData.password}
-                    onChange={(e) =>
-                      handleChange(
-                        "password",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => handleChange("password", e.target.value)}
                     placeholder={
                       editingUser
                         ? "Leave blank to keep current password"
@@ -1543,8 +1322,7 @@ const Users = () => {
 
                   {editingUser && (
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Leave blank if you do not want to
-                      change the password.
+                      Leave blank if you do not want to change the password.
                     </p>
                   )}
                 </div>
@@ -1558,20 +1336,12 @@ const Users = () => {
 
                   <select
                     value={formData.role}
-                    onChange={(e) =>
-                      handleChange(
-                        "role",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => handleChange("role", e.target.value)}
                     disabled={submitting}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50"
                   >
                     {roles.map((role) => (
-                      <option
-                        key={role.value}
-                        value={role.value}
-                      >
+                      <option key={role.value} value={role.value}>
                         {role.label}
                       </option>
                     ))}
@@ -1580,68 +1350,42 @@ const Users = () => {
 
                 {/* DEPARTMENT */}
 
-                {formData.role ===
-                  "department" && (
+                {formData.role === "department" && (
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Department
-                      <span className="text-rose-500 ml-1">
-                        *
-                      </span>
+                      <span className="text-rose-500 ml-1">*</span>
                     </label>
 
                     <div className="relative">
                       <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
 
                       <select
-                        value={
-                          formData.department
-                        }
+                        value={formData.department}
                         onChange={(e) =>
-                          handleChange(
-                            "department",
-                            e.target.value
-                          )
+                          handleChange("department", e.target.value)
                         }
-                        disabled={
-                          submitting ||
-                          departments.length ===
-                            0
-                        }
+                        disabled={submitting || departments.length === 0}
                         className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50"
                       >
                         <option value="">
-                          {departments.length ===
-                          0
+                          {departments.length === 0
                             ? "No departments available"
                             : "Select department"}
                         </option>
 
-                        {departments.map(
-                          (department) => (
-                            <option
-                              key={
-                                department._id
-                              }
-                              value={
-                                department._id
-                              }
-                            >
-                              {department.name}
-                              {department.code
-                                ? ` (${department.code})`
-                                : ""}
-                            </option>
-                          )
-                        )}
+                        {departments.map((department) => (
+                          <option key={department._id} value={department._id}>
+                            {department.name}
+                            {department.code ? ` (${department.code})` : ""}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
-                    {departments.length ===
-                      0 && (
+                    {departments.length === 0 && (
                       <p className="text-[10px] text-rose-500 mt-1">
-                        Create a department before
-                        assigning this user.
+                        Create a department before assigning this user.
                       </p>
                     )}
                   </div>
@@ -1656,25 +1400,15 @@ const Users = () => {
 
                   <select
                     value={formData.status}
-                    onChange={(e) =>
-                      handleChange(
-                        "status",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => handleChange("status", e.target.value)}
                     disabled={submitting}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50"
                   >
-                    {statusOptions.map(
-                      (status) => (
-                        <option
-                          key={status.value}
-                          value={status.value}
-                        >
-                          {status.label}
-                        </option>
-                      )
-                    )}
+                    {statusOptions.map((status) => (
+                      <option key={status.value} value={status.value}>
+                        {status.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1690,19 +1424,15 @@ const Users = () => {
                       </p>
 
                       <p className="text-[11px] text-indigo-600 mt-1 leading-relaxed">
-                        Administrator users have full
-                        system access. Store users manage
-                        inventory and store operations.
-                        Department users are assigned to a
-                        specific department and have access
-                        to department-related functionality.
+                        Administrator users have full system access. Store users
+                        manage inventory and store operations. Department users
+                        are assigned to a specific department and have access to
+                        department-related functionality.
                       </p>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {/* FOOTER */}
 
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row justify-end gap-3">
                 <button
@@ -1745,23 +1475,15 @@ const Users = () => {
   );
 };
 
-/* --------------------------------------------------
-   ACTION MENU
--------------------------------------------------- */
+/*
+ * ACTION MENU
+ */
 
-const ActionMenu = ({
-  user,
-  onEdit,
-  onToggle,
-  onDelete,
-  loading,
-}) => {
+const ActionMenu = ({ user, onEdit, onToggle, onDelete, loading }) => {
   return (
     <div
       className="absolute right-0 top-9 z-50 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 overflow-hidden"
-      onClick={(e) =>
-        e.stopPropagation()
-      }
+      onClick={(e) => e.stopPropagation()}
     >
       {/* EDIT */}
 
@@ -1779,9 +1501,7 @@ const ActionMenu = ({
 
       <button
         type="button"
-        onClick={() =>
-          onToggle(user._id)
-        }
+        onClick={() => onToggle(user)}
         disabled={loading}
         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
       >
@@ -1804,9 +1524,7 @@ const ActionMenu = ({
 
       <button
         type="button"
-        onClick={() =>
-          onDelete(user._id)
-        }
+        onClick={() => onDelete(user)}
         disabled={loading}
         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
       >
@@ -1817,9 +1535,9 @@ const ActionMenu = ({
   );
 };
 
-/* --------------------------------------------------
-   USERS ICON
--------------------------------------------------- */
+/*
+ * USERS ICON
+ */
 
 const UsersIcon = () => (
   <svg
