@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import dns from "dns";
+
 
 import connectDB from "./config/db.js";
 import authrouter from "./routes/authRoutes.js";
@@ -22,8 +22,7 @@ const app = express();
 
 const PORT = process.env.PORT || 4000;
 
-// Fix MongoDB Atlas SRV DNS resolution
-dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
 
 // Middleware
 app.use(cors());
