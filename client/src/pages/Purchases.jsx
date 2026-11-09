@@ -80,15 +80,54 @@ const getDepartmentName = (purchase) => {
   );
 };
 
-// Inventory category can be a plain string or a populated object
-const getInventoryCategory = (inventoryItem) => {
-  if (!inventoryItem?.category) return "";
+/**
+ * Resolves a category value into its display name.
+ * Supports:
+ * - Populated category objects
+ * - Category MongoDB ObjectIds
+ * - Category names stored as strings
+ * - Category objects containing categoryId or id
+ */
+const getCategoryName = (category, categories = []) => {
+  if (!category) return "-";
 
-  if (typeof inventoryItem.category === "object") {
-    return inventoryItem.category.name || "";
+  // Handle populated category objects.
+  if (typeof category === "object") {
+    const directName = category.name || category.categoryName || category.title;
+
+    if (directName) return String(directName);
+
+    const categoryId = category._id || category.categoryId || category.id;
+
+    if (!categoryId) return "-";
+
+    const matchedCategory = categories.find(
+      (item) =>
+        String(item._id) === String(categoryId) ||
+        String(item.categoryId) === String(categoryId) ||
+        String(item.id) === String(categoryId),
+    );
+
+    return (
+      matchedCategory?.name ||
+      matchedCategory?.categoryName ||
+      String(categoryId)
+    );
   }
 
-  return inventoryItem.category;
+  // Handle category ID or category name stored as a string.
+  const categoryValue = String(category);
+
+  const matchedCategory = categories.find(
+    (item) =>
+      String(item._id) === categoryValue ||
+      String(item.categoryId) === categoryValue ||
+      String(item.id) === categoryValue,
+  );
+
+  return (
+    matchedCategory?.name || matchedCategory?.categoryName || categoryValue
+  );
 };
 
 const getStatusClasses = (status) => {
@@ -146,11 +185,17 @@ const Purchases = () => {
   const [items, setItems] = useState([]);
 
   // =====================================================
-  // INVENTORY (for Item ID dropdown)
+  // INVENTORY
   // =====================================================
 
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(true);
+
+  // =====================================================
+  // CATEGORIES
+  // =====================================================
+
+  const [categories, setCategories] = useState([]);
 
   // =====================================================
   // ITEM MODAL
@@ -228,6 +273,32 @@ const Purchases = () => {
       setInventoryLoading(false);
     }
   };
+
+  // =====================================================
+  // LOAD CATEGORIES
+  // =====================================================
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await api.get("/categories");
+
+        const categoryData =
+          response?.data?.categories ||
+          response?.data?.data ||
+          (Array.isArray(response?.data) ? response.data : []);
+
+        setCategories(Array.isArray(categoryData) ? categoryData : []);
+      } catch (error) {
+        console.error("Fetch categories error:", error);
+
+        // Category lookup is supplementary.
+        // The purchase page should still work if this endpoint fails.
+      }
+    };
+
+    fetchCategories();
+  }, []);
 
   // =====================================================
   // LOAD DEPARTMENTS
@@ -345,7 +416,7 @@ const Purchases = () => {
     return purchases.filter((purchase) => {
       const purchaseNumber = String(purchase?.purchaseNo || "").toLowerCase();
 
-      const supplierName = getSupplierName(purchase).toLowerCase();
+      const supplierName = String(getSupplierName(purchase)).toLowerCase();
 
       const invoiceNumber = String(purchase?.invoiceNo || "").toLowerCase();
 
@@ -382,7 +453,7 @@ const Purchases = () => {
     setTaxRate("18");
     setDiscount("0");
 
-    // Refresh so newly created inventory items appear in the dropdown
+    // Refresh so newly created inventory items appear in the dropdown.
     fetchInventory();
 
     setShowItemModal(true);
@@ -423,7 +494,14 @@ const Purchases = () => {
 
     setItemId(inventoryItem.itemCode);
     setItemName(inventoryItem.name || "");
-    setItemCategory(getInventoryCategory(inventoryItem));
+
+    // Resolve category ID into category name.
+    setItemCategory(
+      getCategoryName(inventoryItem.category, categories) === "-"
+        ? ""
+        : getCategoryName(inventoryItem.category, categories),
+    );
+
     setItemUnit(inventoryItem.unit || "");
   };
 
@@ -661,7 +739,7 @@ const Purchases = () => {
 
         purchaseDate,
 
-        // Send the selected department's MongoDB ObjectId
+        // Send the selected department's MongoDB ObjectId.
         department: selectedDepartment._id,
 
         supplier: selectedSupplier._id,
@@ -904,7 +982,6 @@ const Purchases = () => {
                     </tr>
                   </thead>
 
-                  {/* Only ONE tbody. All mapped rows are inside it. */}
                   <tbody className="divide-y divide-slate-100">
                     {filteredPurchases.map((purchase) => {
                       const purchaseId =
@@ -999,7 +1076,10 @@ const Purchases = () => {
                                 colSpan="7"
                                 className="px-5 py-4 bg-slate-50/70"
                               >
-                                <PurchaseDetails purchase={purchase} />
+                                <PurchaseDetails
+                                  purchase={purchase}
+                                  categories={categories}
+                                />
                               </td>
                             </tr>
                           )}
@@ -1105,7 +1185,10 @@ const Purchases = () => {
 
                       {isExpanded && (
                         <div className="border-t border-slate-100 p-4 bg-slate-50/70">
-                          <PurchaseDetails purchase={purchase} />
+                          <PurchaseDetails
+                            purchase={purchase}
+                            categories={categories}
+                          />
                         </div>
                       )}
                     </div>
@@ -1834,7 +1917,7 @@ const Purchases = () => {
 
             <form onSubmit={addItem}>
               <div className="p-6 space-y-5">
-                {/* ITEM ID (inventory dropdown) */}
+                {/* ITEM ID */}
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -2077,7 +2160,7 @@ const Purchases = () => {
 // PURCHASE DETAILS COMPONENT
 // =====================================================
 
-const PurchaseDetails = ({ purchase }) => {
+const PurchaseDetails = ({ purchase, categories = [] }) => {
   const items = Array.isArray(purchase?.items) ? purchase.items : [];
 
   const subtotal =
@@ -2208,6 +2291,11 @@ const PurchaseDetails = ({ purchase }) => {
                     Math.max(0, lineSubtotal - Number(item.discount || 0)) +
                       Number(itemTax || 0);
 
+                  const categoryName = getCategoryName(
+                    item.category,
+                    categories,
+                  );
+
                   return (
                     <tr key={item._id || item.itemId || index}>
                       <td className="px-4 py-3">
@@ -2217,7 +2305,7 @@ const PurchaseDetails = ({ purchase }) => {
 
                         <p className="text-[10px] text-slate-400 mt-0.5">
                           {item.itemId || "-"}
-                          {item.category ? ` · ${item.category}` : ""}
+                          {categoryName !== "-" ? ` · ${categoryName}` : ""}
                           {item.unit ? ` · ${item.unit}` : ""}
                         </p>
                       </td>

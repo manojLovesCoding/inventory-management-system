@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -18,7 +19,6 @@ import api from "../api/axios.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const statusOptions = ["All", "Pending", "Approved", "Rejected", "Issued"];
-
 const priorityOptions = ["All", "High", "Medium", "Low"];
 
 const statusStyles = {
@@ -40,7 +40,9 @@ const formatDate = (date) => {
   if (!date) return "-";
 
   const dateString =
-    typeof date === "string" && date.includes("T") ? date.split("T")[0] : date;
+    typeof date === "string" && date.includes("T")
+      ? date.split("T")[0]
+      : date;
 
   return new Date(`${dateString}T00:00:00`).toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -49,11 +51,104 @@ const formatDate = (date) => {
   });
 };
 
-const normalizeRequest = (request, index = 0) => {
+// --------------------------------------------------
+// CATEGORY NAME HELPER
+// --------------------------------------------------
+
+const getCategoryName = (category, categories = []) => {
+  if (!category) return "";
+
+  // Category is already populated
+  if (typeof category === "object") {
+    const directName =
+      category.name ||
+      category.categoryName ||
+      category.title;
+
+    if (directName) return String(directName);
+
+    // Category is an object containing an ID
+    const categoryId =
+      category._id ||
+      category.categoryId ||
+      category.id;
+
+    if (!categoryId) return "";
+
+    const matchedCategory = categories.find(
+      (item) =>
+        String(item._id || item.id || item.categoryId) ===
+        String(categoryId),
+    );
+
+    return (
+      matchedCategory?.name ||
+      matchedCategory?.categoryName ||
+      matchedCategory?.title ||
+      String(categoryId)
+    );
+  }
+
+  // Category is an ID or a category name
+  const matchedCategory = categories.find(
+    (item) =>
+      String(item._id || item.id || item.categoryId) ===
+      String(category),
+  );
+
+  if (matchedCategory) {
+    return (
+      matchedCategory.name ||
+      matchedCategory.categoryName ||
+      matchedCategory.title ||
+      String(category)
+    );
+  }
+
+  // Preserve an existing category name when no ID match exists
+  return String(category);
+};
+
+// --------------------------------------------------
+// NORMALIZE REQUEST
+// --------------------------------------------------
+
+const normalizeRequest = (
+  request,
+  index = 0,
+  inventoryItems = [],
+  categories = [],
+) => {
+  const requestItem =
+    typeof request.item === "object" && request.item !== null
+      ? request.item
+      : null;
+
+  const itemId =
+    request.itemId ||
+    requestItem?._id ||
+    requestItem?.id ||
+    requestItem?.itemCode ||
+    (typeof request.item === "string" ? request.item : "");
+
+  // Find the corresponding inventory item
+  const inventoryItem = inventoryItems.find(
+    (item) =>
+      String(item._id || item.id || item.itemCode) === String(itemId),
+  );
+
+  // Resolve category from request, populated item, or inventory
+  const categoryValue =
+    request.category ??
+    requestItem?.category ??
+    inventoryItem?.category ??
+    "";
+
+  const resolvedCategory = getCategoryName(categoryValue, categories);
+
   return {
     ...request,
 
-    // Human-readable request number
     id:
       request.id ||
       request.requestNumber ||
@@ -61,31 +156,25 @@ const normalizeRequest = (request, index = 0) => {
       request.requestId ||
       `REQ-${new Date().getFullYear()}-${String(index + 1).padStart(3, "0")}`,
 
-    // IMPORTANT:
-    // Keep MongoDB _id separately for approve/reject/issue APIs.
+    // Keep MongoDB _id separately for API actions
     _id: request._id || request.id,
 
-    itemId:
-      request.itemId ||
-      request.item?._id ||
-      request.item?.id ||
-      request.item?.itemCode ||
-      "",
+    itemId,
 
     itemName:
       request.itemName ||
-      request.item?.name ||
-      request.item?.itemName ||
-      request.item?.productName ||
+      requestItem?.name ||
+      requestItem?.itemName ||
+      requestItem?.productName ||
+      inventoryItem?.name ||
       "Unnamed Item",
 
     category:
-      typeof request.category === "object"
-        ? request.category?.name || request.category?.categoryName || ""
-        : request.category ||
-          request.item?.category?.name ||
-          request.item?.category ||
-          "",
+      resolvedCategory ||
+      (typeof categoryValue === "string" &&
+      !/^[a-f\d]{24}$/i.test(categoryValue)
+        ? categoryValue
+        : "Uncategorized"),
 
     departmentId:
       request.departmentId ||
@@ -94,22 +183,34 @@ const normalizeRequest = (request, index = 0) => {
       "",
 
     department:
-      typeof request.department === "object"
-        ? request.department?.name || request.department?.departmentName || ""
+      typeof request.department === "object" && request.department !== null
+        ? request.department?.name ||
+          request.department?.departmentName ||
+          ""
         : request.department || "",
 
     requestedBy:
-      request.requestedBy || request.requesterName || request.user?.name || "",
+      request.requestedBy ||
+      request.requesterName ||
+      request.user?.name ||
+      "",
 
     quantity: Number(request.quantity) || 0,
 
-    unit: request.unit || request.item?.unit || "Nos",
+    unit:
+      request.unit ||
+      requestItem?.unit ||
+      inventoryItem?.unit ||
+      "Nos",
 
     priority: request.priority || "Medium",
 
     status: request.status || "Pending",
 
-    requestDate: request.requestDate || request.createdAt?.split("T")[0] || "",
+    requestDate:
+      request.requestDate ||
+      request.createdAt?.split("T")[0] ||
+      "",
 
     requiredDate: request.requiredDate || "",
 
@@ -127,6 +228,7 @@ const normalizeRequest = (request, index = 0) => {
 
 const Requests = () => {
   const { user } = useAuth();
+
   const [requests, setRequests] = useState(initialRequests);
 
   // --------------------------------------------------
@@ -150,6 +252,13 @@ const Requests = () => {
 
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(true);
+
+  // --------------------------------------------------
+  // CATEGORIES
+  // --------------------------------------------------
+
+  const [categories, setCategories] = useState([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
 
   // --------------------------------------------------
   // FILTERS
@@ -183,17 +292,17 @@ const Requests = () => {
   });
 
   const openCreateModal = () => {
-  setNewRequest((prev) => ({
-    ...prev,
-    requestedBy: user?.name || "",
-    department:
-      user?.department?._id ||
-      user?.department ||
-      prev.department,
-  }));
+    setNewRequest((prev) => ({
+      ...prev,
+      requestedBy: user?.name || "",
+      department:
+        user?.department?._id ||
+        user?.department ||
+        prev.department,
+    }));
 
-  setShowCreateModal(true);
-};
+    setShowCreateModal(true);
+  };
 
   // --------------------------------------------------
   // GET DEPARTMENTS
@@ -206,14 +315,17 @@ const Requests = () => {
       const response = await api.get("/departments");
 
       const data =
-        response.data?.data ?? response.data?.departments ?? response.data;
+        response.data?.data ??
+        response.data?.departments ??
+        response.data;
 
       setDepartments(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch departments:", error);
 
       toast.error(
-        error.response?.data?.message || "Failed to load departments",
+        error.response?.data?.message ||
+          "Failed to load departments",
       );
 
       setDepartments([]);
@@ -223,10 +335,51 @@ const Requests = () => {
   };
 
   // --------------------------------------------------
+  // FETCH CATEGORIES
+  // --------------------------------------------------
+
+  const fetchCategories = async () => {
+    // Existing category routes are admin-only.
+    // Other users can still use populated category data
+    // returned by the inventory/request APIs.
+    if (user?.role?.toLowerCase() !== "admin") {
+      setCategories([]);
+      return [];
+    }
+
+    try {
+      setCategoryLoading(true);
+
+      const response = await api.get("/categories");
+
+      const responseData = response.data;
+
+      const data =
+        responseData?.categories ||
+        responseData?.data ||
+        responseData;
+
+      const categoryList = Array.isArray(data) ? data : [];
+
+      setCategories(categoryList);
+
+      return categoryList;
+    } catch (error) {
+      console.error("Failed to fetch categories:", error);
+
+      setCategories([]);
+
+      return [];
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
   // FETCH INVENTORY
   // --------------------------------------------------
 
-  const fetchInventory = async () => {
+  const fetchInventory = async (categoryList = categories) => {
     setInventoryLoading(true);
 
     try {
@@ -243,7 +396,7 @@ const Requests = () => {
 
       if (!Array.isArray(inventoryData)) {
         setInventoryItems([]);
-        return;
+        return [];
       }
 
       const normalizedItems = inventoryData.map((item, index) => {
@@ -268,6 +421,11 @@ const Requests = () => {
           }
         }
 
+        const categoryName = getCategoryName(
+          item.category,
+          categoryList,
+        );
+
         return {
           ...item,
 
@@ -278,16 +436,24 @@ const Requests = () => {
             `ITM-${String(index + 1).padStart(4, "0")}`,
 
           name:
-            item.name || item.itemName || item.productName || "Unnamed Item",
+            item.name ||
+            item.itemName ||
+            item.productName ||
+            "Unnamed Item",
 
           category:
-            typeof item.category === "object"
-              ? item.category?.name || item.category?.categoryName || ""
-              : item.category || "",
+            categoryName ||
+            (typeof item.category === "string" &&
+            !/^[a-f\d]{24}$/i.test(item.category)
+              ? item.category
+              : "Uncategorized"),
 
           department:
-            typeof item.department === "object"
-              ? item.department?.name || item.department?.departmentName || ""
+            typeof item.department === "object" &&
+            item.department !== null
+              ? item.department?.name ||
+                item.department?.departmentName ||
+                ""
               : item.department || "",
 
           quantity,
@@ -305,14 +471,19 @@ const Requests = () => {
       });
 
       setInventoryItems(normalizedItems);
+
+      return normalizedItems;
     } catch (error) {
       console.error("Failed to fetch inventory:", error);
 
       toast.error(
-        error.response?.data?.message || "Failed to load inventory items",
+        error.response?.data?.message ||
+          "Failed to load inventory items",
       );
 
       setInventoryItems([]);
+
+      return [];
     } finally {
       setInventoryLoading(false);
     }
@@ -322,7 +493,10 @@ const Requests = () => {
   // FETCH REQUESTS
   // --------------------------------------------------
 
-  const fetchRequests = async () => {
+  const fetchRequests = async (
+    inventory = inventoryItems,
+    categoryList = categories,
+  ) => {
     setRequestsLoading(true);
 
     try {
@@ -342,15 +516,24 @@ const Requests = () => {
         return;
       }
 
-      const normalizedRequests = requestData.map((request, index) =>
-        normalizeRequest(request, index),
+      const normalizedRequests = requestData.map(
+        (request, index) =>
+          normalizeRequest(
+            request,
+            index,
+            inventory,
+            categoryList,
+          ),
       );
 
       setRequests(normalizedRequests);
     } catch (error) {
       console.error("Failed to fetch requests:", error);
 
-      toast.error(error.response?.data?.message || "Failed to load requests");
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load requests",
+      );
 
       setRequests([]);
     } finally {
@@ -363,9 +546,22 @@ const Requests = () => {
   // --------------------------------------------------
 
   useEffect(() => {
-    fetchDepartments();
-    fetchInventory();
-    fetchRequests();
+    const loadInitialData = async () => {
+      // Fetch categories first so their IDs can be resolved
+      // while normalizing inventory and requests.
+      const categoryList = await fetchCategories();
+
+      const inventory = await fetchInventory(categoryList);
+
+      await Promise.all([
+        fetchDepartments(),
+        fetchRequests(inventory, categoryList),
+      ]);
+    };
+
+    loadInitialData();
+    // Initial data should load once when this component mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --------------------------------------------------
@@ -376,14 +572,18 @@ const Requests = () => {
     return departments
       .filter(
         (department) =>
-          department.status === undefined || department.status === "Active",
+          department.status === undefined ||
+          department.status === "Active",
       )
       .map((department) => {
         const id = department._id || department.id || "";
 
         return {
           id,
-          name: department.name || department.departmentName || "",
+          name:
+            department.name ||
+            department.departmentName ||
+            "",
           code: department.code || "",
         };
       })
@@ -406,6 +606,9 @@ const Requests = () => {
         String(request.itemName || "")
           .toLowerCase()
           .includes(query) ||
+        String(request.category || "")
+          .toLowerCase()
+          .includes(query) ||
         String(request.department || "")
           .toLowerCase()
           .includes(query) ||
@@ -414,19 +617,31 @@ const Requests = () => {
           .includes(query);
 
       const matchesStatus =
-        statusFilter === "All" || request.status === statusFilter;
+        statusFilter === "All" ||
+        request.status === statusFilter;
 
       const matchesPriority =
-        priorityFilter === "All" || request.priority === priorityFilter;
+        priorityFilter === "All" ||
+        request.priority === priorityFilter;
 
       const matchesDepartment =
-        departmentFilter === "All" || request.department === departmentFilter;
+        departmentFilter === "All" ||
+        request.department === departmentFilter;
 
       return (
-        matchesSearch && matchesStatus && matchesPriority && matchesDepartment
+        matchesSearch &&
+        matchesStatus &&
+        matchesPriority &&
+        matchesDepartment
       );
     });
-  }, [requests, search, statusFilter, priorityFilter, departmentFilter]);
+  }, [
+    requests,
+    search,
+    statusFilter,
+    priorityFilter,
+    departmentFilter,
+  ]);
 
   // --------------------------------------------------
   // STATS
@@ -436,16 +651,21 @@ const Requests = () => {
     return {
       total: requests.length,
 
-      pending: requests.filter((request) => request.status === "Pending")
-        .length,
+      pending: requests.filter(
+        (request) => request.status === "Pending",
+      ).length,
 
-      approved: requests.filter((request) => request.status === "Approved")
-        .length,
+      approved: requests.filter(
+        (request) => request.status === "Approved",
+      ).length,
 
-      issued: requests.filter((request) => request.status === "Issued").length,
+      issued: requests.filter(
+        (request) => request.status === "Issued",
+      ).length,
 
-      rejected: requests.filter((request) => request.status === "Rejected")
-        .length,
+      rejected: requests.filter(
+        (request) => request.status === "Rejected",
+      ).length,
     };
   }, [requests]);
 
@@ -547,7 +767,8 @@ const Requests = () => {
     }
 
     const selectedDepartment = departmentOptions.find(
-      (department) => String(department.id) === String(newRequest.department),
+      (department) =>
+        String(department.id) === String(newRequest.department),
     );
 
     if (!selectedDepartment) {
@@ -565,7 +786,10 @@ const Requests = () => {
       return;
     }
 
-    const itemId = selectedItem._id || selectedItem.id || selectedItem.itemCode;
+    const itemId =
+      selectedItem._id ||
+      selectedItem.id ||
+      selectedItem.itemCode;
 
     const departmentId = selectedDepartment.id;
 
@@ -595,29 +819,40 @@ const Requests = () => {
       const response = await api.post("/requests", payload);
 
       const createdRequest =
-        response.data?.data || response.data?.request || response.data;
+        response.data?.data ||
+        response.data?.request ||
+        response.data;
 
       if (createdRequest) {
         const normalizedRequest = normalizeRequest(
           createdRequest,
           requests.length,
+          inventoryItems,
+          categories,
         );
 
-        setRequests((prev) => [normalizedRequest, ...prev]);
+        setRequests((prev) => [
+          normalizedRequest,
+          ...prev,
+        ]);
       } else {
-        await fetchRequests();
+        await fetchRequests(inventoryItems, categories);
       }
 
       toast.success("Item request created successfully");
 
       closeCreateModal();
 
-      await fetchInventory();
+      const updatedInventory = await fetchInventory(categories);
+
+      // Refresh requests so category names remain consistent
+      await fetchRequests(updatedInventory, categories);
     } catch (error) {
       console.error("Failed to create request:", error);
 
       toast.error(
-        error.response?.data?.message || "Failed to create item request",
+        error.response?.data?.message ||
+          "Failed to create item request",
       );
     } finally {
       setCreatingRequest(false);
@@ -648,14 +883,17 @@ const Requests = () => {
       } else if (status === "Issued") {
         endpoint = `/requests/${requestId}/issue`;
       } else {
-        throw new Error(`Unsupported request status: ${status}`);
+        throw new Error(
+          `Unsupported request status: ${status}`,
+        );
       }
 
-      console.log(`Updating request ${requestId} to ${status}`);
+      console.log(
+        `Updating request ${requestId} to ${status}`,
+      );
 
       await api.patch(endpoint);
 
-      // Update local list using MongoDB _id.
       setRequests((prev) =>
         prev.map((request) =>
           String(request._id) === String(requestId)
@@ -667,7 +905,6 @@ const Requests = () => {
         ),
       );
 
-      // Update selected request using MongoDB _id.
       setSelectedRequest((prev) =>
         prev && String(prev._id) === String(requestId)
           ? {
@@ -677,13 +914,16 @@ const Requests = () => {
           : prev,
       );
 
-      toast.success(`Request ${status.toLowerCase()} successfully`);
+      toast.success(
+        `Request ${status.toLowerCase()} successfully`,
+      );
 
-      await fetchRequests();
+      const updatedInventory =
+        status === "Issued" || status === "Approved"
+          ? await fetchInventory(categories)
+          : inventoryItems;
 
-      if (status === "Issued" || status === "Approved") {
-        await fetchInventory();
-      }
+      await fetchRequests(updatedInventory, categories);
     } catch (error) {
       console.error("Failed to update request status:", error);
 
@@ -731,10 +971,10 @@ const Requests = () => {
           </div>
 
           <button
-  type="button"
-  onClick={openCreateModal}
-  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
->
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+          >
             <Plus className="w-4 h-4" />
             New Request
           </button>
@@ -747,7 +987,6 @@ const Requests = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Total Requests</p>
-
                 <p className="text-2xl font-bold text-slate-900 mt-1">
                   {stats.total}
                 </p>
@@ -763,7 +1002,6 @@ const Requests = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Pending</p>
-
                 <p className="text-2xl font-bold text-amber-600 mt-1">
                   {stats.pending}
                 </p>
@@ -779,7 +1017,6 @@ const Requests = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Approved</p>
-
                 <p className="text-2xl font-bold text-emerald-600 mt-1">
                   {stats.approved}
                 </p>
@@ -795,7 +1032,6 @@ const Requests = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Issued</p>
-
                 <p className="text-2xl font-bold text-indigo-600 mt-1">
                   {stats.issued}
                 </p>
@@ -811,7 +1047,6 @@ const Requests = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Rejected</p>
-
                 <p className="text-2xl font-bold text-rose-600 mt-1">
                   {stats.rejected}
                 </p>
@@ -830,7 +1065,6 @@ const Requests = () => {
           <div className="px-5 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-500" />
-
               <h2 className="text-sm font-semibold text-slate-800">
                 Filter Requests
               </h2>
@@ -915,7 +1149,9 @@ const Requests = () => {
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">Requests</h2>
+              <h2 className="text-sm font-semibold text-slate-800">
+                Requests
+              </h2>
 
               <p className="text-xs text-slate-400 mt-1">
                 Showing {filteredRequests.length} of {requests.length} requests
@@ -1134,7 +1370,9 @@ const Requests = () => {
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
                       <div>
-                        <p className="text-[10px] text-slate-400">Department</p>
+                        <p className="text-[10px] text-slate-400">
+                          Department
+                        </p>
 
                         <p className="text-xs font-medium text-slate-700 mt-1">
                           {request.department}
@@ -1142,7 +1380,9 @@ const Requests = () => {
                       </div>
 
                       <div>
-                        <p className="text-[10px] text-slate-400">Quantity</p>
+                        <p className="text-[10px] text-slate-400">
+                          Quantity
+                        </p>
 
                         <p className="text-xs font-medium text-slate-700 mt-1">
                           {request.quantity} {request.unit}
@@ -1150,7 +1390,9 @@ const Requests = () => {
                       </div>
 
                       <div>
-                        <p className="text-[10px] text-slate-400">Priority</p>
+                        <p className="text-[10px] text-slate-400">
+                          Priority
+                        </p>
 
                         <span
                           className={`inline-flex mt-1 px-2 py-1 rounded-full border text-[10px] font-semibold ${
@@ -1163,11 +1405,14 @@ const Requests = () => {
                       </div>
 
                       <div>
-                        <p className="text-[10px] text-slate-400">Status</p>
+                        <p className="text-[10px] text-slate-400">
+                          Status
+                        </p>
 
                         <span
                           className={`inline-flex mt-1 px-2 py-1 rounded-full border text-[10px] font-semibold ${
-                            statusStyles[request.status] || statusStyles.Pending
+                            statusStyles[request.status] ||
+                            statusStyles.Pending
                           }`}
                         >
                           {request.status}
@@ -1187,7 +1432,9 @@ const Requests = () => {
                       </div>
 
                       <div className="text-right">
-                        <p className="text-[10px] text-slate-400">Required</p>
+                        <p className="text-[10px] text-slate-400">
+                          Required
+                        </p>
 
                         <p className="text-xs font-medium text-slate-700 mt-0.5">
                           {formatDate(request.requiredDate)}
@@ -1266,7 +1513,8 @@ const Requests = () => {
                       </option>
 
                       {inventoryItems.map((item) => {
-                        const itemKey = item._id || item.id || item.itemCode;
+                        const itemKey =
+                          item._id || item.id || item.itemCode;
 
                         return (
                           <option key={itemKey} value={itemKey}>
@@ -1314,9 +1562,14 @@ const Requests = () => {
                       </option>
 
                       {departmentOptions.map((department) => (
-                        <option key={department.id} value={department.id}>
+                        <option
+                          key={department.id}
+                          value={department.id}
+                        >
                           {department.name}
-                          {department.code ? ` (${department.code})` : ""}
+                          {department.code
+                            ? ` (${department.code})`
+                            : ""}
                         </option>
                       ))}
                     </select>
@@ -1405,9 +1658,7 @@ const Requests = () => {
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-indigo-500 disabled:bg-slate-50"
                     >
                       <option value="Low">Low</option>
-
                       <option value="Medium">Medium</option>
-
                       <option value="High">High</option>
                     </select>
                   </div>
@@ -1502,8 +1753,9 @@ const Requests = () => {
                           {selectedItem.itemCode ||
                             selectedItem.id ||
                             selectedItem._id}{" "}
-                          · {selectedItem.category} · Unit: {selectedItem.unit}{" "}
-                          · Available: {selectedItem.available}
+                          · {selectedItem.category} · Unit:{" "}
+                          {selectedItem.unit} · Available:{" "}
+                          {selectedItem.available}
                         </p>
                       </div>
                     </div>
@@ -1558,7 +1810,9 @@ const Requests = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={() => (updatingStatus ? null : setSelectedRequest(null))}
+            onClick={() =>
+              updatingStatus ? null : setSelectedRequest(null)
+            }
           />
 
           <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
@@ -1771,7 +2025,9 @@ const Requests = () => {
                   <button
                     type="button"
                     disabled={updatingStatus}
-                    onClick={() => updateStatus(selectedRequest._id, "Issued")}
+                    onClick={() =>
+                      updateStatus(selectedRequest._id, "Issued")
+                    }
                     className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50"
                   >
                     {updatingStatus ? (

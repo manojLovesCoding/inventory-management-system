@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpFromLine,
@@ -17,7 +16,6 @@ import toast from "react-hot-toast";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
-
 const StockOut = () => {
   const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role?.toLowerCase() === "admin";
@@ -26,6 +24,7 @@ const StockOut = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [categoryOptions, setCategoryOptions] = useState([]);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -94,6 +93,30 @@ const StockOut = () => {
   };
 
   // =====================================================
+  // FETCH CATEGORIES
+  // =====================================================
+
+  const fetchCategories = async () => {
+    try {
+      const response = await api.get("/categories");
+
+      const categories = extractArray(response.data, [
+        "categories",
+        "category",
+        "items",
+      ]);
+
+      setCategoryOptions(categories);
+
+      return categories;
+    } catch (error) {
+      console.error("Fetch categories error:", error);
+      setCategoryOptions([]);
+      return [];
+    }
+  };
+
+  // =====================================================
   // FETCH DEPARTMENTS
   // =====================================================
 
@@ -126,11 +149,7 @@ const StockOut = () => {
     try {
       const response = await api.get("/requests");
 
-      return extractArray(response.data, [
-        "itemRequests",
-        "requests",
-        "items",
-      ]);
+      return extractArray(response.data, ["itemRequests", "requests", "items"]);
     } catch (error) {
       console.error("Fetch item requests error:", error);
       return [];
@@ -151,6 +170,7 @@ const StockOut = () => {
           fetchInventory(),
           fetchDepartments(),
           fetchRequests(),
+          fetchCategories(),
         ]);
 
       setStockOutRecords(stockOutData);
@@ -221,6 +241,58 @@ const StockOut = () => {
   };
 
   // =====================================================
+  // CATEGORY HELPERS
+  // =====================================================
+
+  const getCategoryName = (category) => {
+    if (!category) {
+      return "—";
+    }
+
+    // Category is already populated as an object.
+    if (typeof category === "object") {
+      const categoryName =
+        category.name ||
+        category.categoryName ||
+        category.category ||
+        category.code;
+
+      if (categoryName) {
+        return String(categoryName);
+      }
+
+      // If the object contains only an ID, resolve it below.
+      category = category._id || category.id || category.categoryId;
+    }
+
+    if (!category) {
+      return "—";
+    }
+
+    const categoryId = String(category);
+
+    // Resolve category ObjectId or categoryId using fetched categories.
+    const matchedCategory = categoryOptions.find(
+      (option) =>
+        String(option._id) === categoryId ||
+        String(option.id) === categoryId ||
+        String(option.categoryId) === categoryId,
+    );
+
+    if (matchedCategory) {
+      return (
+        matchedCategory.name ||
+        matchedCategory.categoryName ||
+        matchedCategory.code ||
+        categoryId
+      );
+    }
+
+    // Preserve plain-text category names if no ID match is found.
+    return categoryId;
+  };
+
+  // =====================================================
   // STOCK OUT HELPERS
   // =====================================================
 
@@ -252,10 +324,10 @@ const StockOut = () => {
     const inventory = record?.inventory;
 
     if (inventory && typeof inventory === "object") {
-      return getDisplayValue(inventory.category, "—");
+      return getCategoryName(inventory.category);
     }
 
-    return getDisplayValue(record?.category, "—");
+    return getCategoryName(record?.category);
   };
 
   const getQuantity = (record) => {
@@ -357,13 +429,7 @@ const StockOut = () => {
   };
 
   const getInventoryCategory = (item) => {
-    const category = item?.category;
-
-    if (category && typeof category === "object") {
-      return category.name || category.categoryName || category.code || "";
-    }
-
-    return category || item?.categoryName || "";
+    return getCategoryName(item?.category || item?.categoryName);
   };
 
   const getInventoryUnit = (item) => {
@@ -439,7 +505,7 @@ const StockOut = () => {
 
       return matchesSearch && matchesStatus;
     });
-  }, [stockOutRecords, search, statusFilter]);
+  }, [stockOutRecords, search, statusFilter, categoryOptions]);
 
   // =====================================================
   // SUMMARY

@@ -45,6 +45,38 @@ const getSupplierName = (supplier) => {
   return supplier;
 };
 
+// Resolve category objects and ObjectIds into category names.
+const getCategoryName = (category, categoryOptions = []) => {
+  if (!category) return "-";
+
+  // Category is already populated.
+  if (typeof category === "object") {
+    if (category.name || category.categoryName) {
+      return category.name || category.categoryName;
+    }
+
+    category = category._id || category.categoryId || "";
+  }
+
+  const matchedCategory = categoryOptions.find(
+    (item) =>
+      String(item._id) === String(category) ||
+      String(item.categoryId) === String(category),
+  );
+
+  if (matchedCategory) {
+    return matchedCategory.name || matchedCategory.categoryName || "-";
+  }
+
+  // Keep an existing text category instead of replacing it.
+  // Avoid showing an unresolved MongoDB ObjectId.
+  if (/^[a-f\d]{24}$/i.test(String(category))) {
+    return "-";
+  }
+
+  return String(category);
+};
+
 const formatCurrency = (value) => {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -93,7 +125,36 @@ const StockIn = () => {
   const [purchases, setPurchases] = useState([]);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
 
+  const [categoryOptions, setCategoryOptions] = useState([]);
+
   const [isSaving, setIsSaving] = useState(false);
+
+  // =========================
+  // FETCH CATEGORIES
+  // =========================
+
+  const fetchCategories = async () => {
+    try {
+      const response = await api.get("/categories");
+
+      const data =
+        response.data?.categories || response.data?.data || response.data || [];
+
+      const categories = Array.isArray(data) ? data : [];
+
+      setCategoryOptions(categories);
+
+      return categories;
+    } catch (error) {
+      console.error("Fetch categories error:", error);
+
+      toast.error(error.response?.data?.message || "Failed to load categories");
+
+      setCategoryOptions([]);
+
+      return [];
+    }
+  };
 
   // =========================
   // FETCH STOCK IN RECORDS
@@ -147,9 +208,16 @@ const StockIn = () => {
     }
   };
 
+  // Fetch categories first so category IDs can be resolved
+  // when purchase orders and Stock In records are loaded.
   useEffect(() => {
-    fetchStockIns();
-    fetchPurchases();
+    const loadData = async () => {
+      await fetchCategories();
+
+      await Promise.all([fetchStockIns(), fetchPurchases()]);
+    };
+
+    loadData();
   }, []);
 
   // =========================
@@ -169,7 +237,8 @@ const StockIn = () => {
   // PO AUTO-FILL LOGIC
   // =========================
 
-  // Quantity already received per purchase + item (from existing Stock In records)
+  // Quantity already received per purchase + item
+  // from existing Stock In records.
   const receivedQtyMap = useMemo(() => {
     const map = {};
 
@@ -229,14 +298,17 @@ const StockIn = () => {
     return {
       itemId: purchaseItem.itemId,
       item: purchaseItem.name,
-      category: purchaseItem.category,
+
+      // Resolve category ID into its readable name.
+      category: getCategoryName(purchaseItem.category, categoryOptions),
+
       unit: purchaseItem.unit || "units",
       quantity: String(getRemainingQty(purchase, purchaseItem)),
       unitPrice: String(purchaseItem.unitPrice),
     };
   };
 
-  // When a PO is selected -> fetch supplier + first pending item
+  // When a PO is selected -> fetch supplier + first pending item.
   const handlePurchaseSelect = (event) => {
     const purchase = purchases.find((p) => p._id === event.target.value);
 
@@ -246,6 +318,7 @@ const StockIn = () => {
         receivedBy: prev.receivedBy,
         notes: prev.notes,
       }));
+
       return;
     }
 
@@ -263,10 +336,10 @@ const StockIn = () => {
     }));
   };
 
-  // When a different item of the same PO is chosen
+  // When a different item of the same PO is chosen.
   const handlePurchaseItemSelect = (event) => {
     const purchaseItem = selectedPurchase?.items?.find(
-      (i) => i.itemId === event.target.value,
+      (item) => item.itemId === event.target.value,
     );
 
     setFormData((prev) => ({
@@ -279,7 +352,9 @@ const StockIn = () => {
   // MODAL OPEN / CLOSE / RESET
   // =========================
 
-  const resetForm = () => setFormData(getEmptyForm());
+  const resetForm = () => {
+    setFormData(getEmptyForm());
+  };
 
   const openAddModal = () => {
     resetForm();
@@ -314,10 +389,16 @@ const StockIn = () => {
       return;
     }
 
+    if (Number(formData.quantity) <= 0) {
+      toast.error("Quantity must be greater than zero");
+      return;
+    }
+
     if (Number(formData.quantity) > remainingQty) {
       toast.error(
         `Quantity cannot exceed the pending quantity (${remainingQty})`,
       );
+
       return;
     }
 
@@ -331,14 +412,19 @@ const StockIn = () => {
         receivedDate: formData.receivedDate,
         receivedBy: formData.receivedBy.trim(),
         status: "Received",
+
         item: {
           itemId: formData.itemId,
           item: formData.item,
+
+          // Save the resolved category name.
           category: formData.category,
+
           unit: formData.unit || "units",
           quantity: Number(formData.quantity),
           unitPrice: Number(formData.unitPrice),
         },
+
         notes: formData.notes.trim(),
       };
 
@@ -383,7 +469,8 @@ const StockIn = () => {
 
       const itemName = record.item?.item || "";
       const itemId = record.item?.itemId || "";
-      const category = record.item?.category || "";
+
+      const category = getCategoryName(record.item?.category, categoryOptions);
 
       const matchesSearch =
         record.stockInNo?.toLowerCase().includes(query) ||
@@ -398,7 +485,7 @@ const StockIn = () => {
 
       return matchesSearch && matchesStatus;
     });
-  }, [stockInRecords, search, statusFilter]);
+  }, [stockInRecords, search, statusFilter, categoryOptions]);
 
   // =========================
   // SUMMARY
@@ -595,7 +682,10 @@ const StockIn = () => {
                             </p>
 
                             <p className="text-xs text-slate-400 mt-1">
-                              {record.item?.category}
+                              {getCategoryName(
+                                record.item?.category,
+                                categoryOptions,
+                              )}
                             </p>
                           </div>
                         </div>
@@ -729,7 +819,13 @@ const StockIn = () => {
                       value={formatDate(record.receivedDate)}
                     />
 
-                    <Info label="Category" value={record.item?.category} />
+                    <Info
+                      label="Category"
+                      value={getCategoryName(
+                        record.item?.category,
+                        categoryOptions,
+                      )}
+                    />
                   </div>
 
                   <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
@@ -792,7 +888,10 @@ const StockIn = () => {
                     </h3>
 
                     <p className="text-sm text-slate-500 mt-1">
-                      {selectedStock.item?.category}
+                      {getCategoryName(
+                        selectedStock.item?.category,
+                        categoryOptions,
+                      )}
                     </p>
                   </div>
                 </div>
@@ -913,7 +1012,7 @@ const StockIn = () => {
             <form onSubmit={handleSaveStock}>
               <div className="p-5 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* REFERENCE / PO NUMBER (dropdown) */}
+                  {/* REFERENCE / PO NUMBER */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Reference / PO Number
@@ -962,7 +1061,7 @@ const StockIn = () => {
                     readOnly
                   />
 
-                  {/* PO ITEM (dropdown) */}
+                  {/* PO ITEM */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       PO Item
@@ -1072,8 +1171,7 @@ const StockIn = () => {
 
                 {selectedPurchase && !hasPendingItems && (
                   <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
-                    All items in this purchase order have already been
-                    received.
+                    All items in this purchase order have already been received.
                   </div>
                 )}
 
@@ -1112,7 +1210,9 @@ const StockIn = () => {
 
                 <button
                   type="submit"
-                  disabled={isSaving || !selectedPurchaseItem || remainingQty <= 0}
+                  disabled={
+                    isSaving || !selectedPurchaseItem || remainingQty <= 0
+                  }
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-4 h-4" />

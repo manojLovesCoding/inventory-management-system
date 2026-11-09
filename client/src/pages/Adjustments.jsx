@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -21,6 +20,50 @@ import toast from "react-hot-toast";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
+// -----------------------------------------------------
+// CATEGORY NAME HELPER
+// -----------------------------------------------------
+
+const getCategoryName = (category, categoryOptions = []) => {
+  if (!category) return "-";
+
+  // Category is already a populated object
+  if (typeof category === "object") {
+    if (category.name || category.categoryName || category.category) {
+      return category.name || category.categoryName || category.category;
+    }
+
+    // Resolve object ID using fetched categories
+    const categoryId = category._id || category.categoryId;
+
+    if (categoryId) {
+      const matchedCategory = categoryOptions.find(
+        (option) =>
+          String(option._id) === String(categoryId) ||
+          String(option.categoryId) === String(categoryId),
+      );
+
+      return matchedCategory?.name || String(categoryId);
+    }
+
+    return "-";
+  }
+
+  // Resolve category ID string using fetched categories
+  const matchedCategory = categoryOptions.find(
+    (option) =>
+      String(option._id) === String(category) ||
+      String(option.categoryId) === String(category),
+  );
+
+  if (matchedCategory) {
+    return matchedCategory.name || String(category);
+  }
+
+  // Preserve plain-text category values
+  return String(category);
+};
+
 const Adjustments = () => {
   const { user, loading: authLoading } = useAuth();
 
@@ -29,6 +72,7 @@ const Adjustments = () => {
   const [adjustments, setAdjustments] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [categoryOptions, setCategoryOptions] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,17 +106,12 @@ const Adjustments = () => {
 
       const data = response.data;
 
-      setAdjustments(
-        Array.isArray(data.adjustments)
-          ? data.adjustments
-          : [],
-      );
+      setAdjustments(Array.isArray(data.adjustments) ? data.adjustments : []);
     } catch (error) {
       console.error("Fetch adjustments error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to load stock adjustments",
+        error.response?.data?.message || "Failed to load stock adjustments",
       );
     }
   }, []);
@@ -87,19 +126,14 @@ const Adjustments = () => {
 
       const data = response.data;
 
-      const items =
-        data.inventory ||
-        data.items ||
-        data.data ||
-        [];
+      const items = data.inventory || data.items || data.data || [];
 
       setInventory(Array.isArray(items) ? items : []);
     } catch (error) {
       console.error("Fetch inventory error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to load inventory items",
+        error.response?.data?.message || "Failed to load inventory items",
       );
     }
   }, []);
@@ -114,19 +148,37 @@ const Adjustments = () => {
 
       const data = response.data;
 
-      const items =
-        data.departments ||
-        data.data ||
-        [];
+      const items = data.departments || data.data || [];
 
       setDepartments(Array.isArray(items) ? items : []);
     } catch (error) {
       console.error("Fetch departments error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to load departments",
+        error.response?.data?.message || "Failed to load departments",
       );
+    }
+  }, []);
+
+  // -----------------------------------------------------
+  // FETCH CATEGORIES
+  // -----------------------------------------------------
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const response = await api.get("/categories");
+
+      const data = response.data;
+
+      const items =
+        data.categories || data.data || (Array.isArray(data) ? data : []);
+
+      setCategoryOptions(Array.isArray(items) ? items : []);
+    } catch (error) {
+      console.error("Fetch categories error:", error);
+
+      // Category lookup should not prevent adjustments from loading.
+      setCategoryOptions([]);
     }
   }, []);
 
@@ -149,6 +201,7 @@ const Adjustments = () => {
         fetchAdjustments(),
         fetchInventory(),
         fetchDepartments(),
+        fetchCategories(),
       ]);
 
       setLoading(false);
@@ -161,6 +214,7 @@ const Adjustments = () => {
     fetchAdjustments,
     fetchInventory,
     fetchDepartments,
+    fetchCategories,
   ]);
 
   // -----------------------------------------------------
@@ -180,11 +234,15 @@ const Adjustments = () => {
     return record.item || "Unknown Item";
   };
 
+  const getRecordCategory = (record) => {
+    return getCategoryName(
+      record.category ?? record.inventory?.category,
+      categoryOptions,
+    );
+  };
+
   const getDepartmentName = (record) => {
-    if (
-      record.department &&
-      typeof record.department === "object"
-    ) {
+    if (record.department && typeof record.department === "object") {
       return (
         record.department.name ||
         record.department.departmentName ||
@@ -196,22 +254,15 @@ const Adjustments = () => {
   };
 
   const getAdjustedBy = (record) => {
-    if (
-      record.adjustedBy &&
-      typeof record.adjustedBy === "object"
-    ) {
-      return (
-        record.adjustedBy.name ||
-        record.adjustedBy.email ||
-        "Admin"
-      );
+    if (record.adjustedBy && typeof record.adjustedBy === "object") {
+      return record.adjustedBy.name || record.adjustedBy.email || "Admin";
     }
 
     return record.adjustedBy || "Admin";
   };
 
   const getAdjustmentId = (record) => {
-    return record.adjustmentNo || record._id;
+    return String(record.adjustmentNo || record._id || "");
   };
 
   const selectedInventory = inventory.find(
@@ -240,45 +291,26 @@ const Adjustments = () => {
       const query = search.toLowerCase().trim();
 
       const matchesSearch =
-        getAdjustmentId(record)
-          ?.toLowerCase()
-          .includes(query) ||
-        getItemName(record)
+        getAdjustmentId(record).toLowerCase().includes(query) ||
+        String(getItemName(record)).toLowerCase().includes(query) ||
+        getRecordCategory(record).toLowerCase().includes(query) ||
+        String(record.adjustmentType || "")
           .toLowerCase()
           .includes(query) ||
-        (record.category || "")
-          .toLowerCase()
-          .includes(query) ||
-        (record.adjustmentType || "")
-          .toLowerCase()
-          .includes(query) ||
-        getDepartmentName(record)
-          .toLowerCase()
-          .includes(query) ||
-        (record.reason || "")
+        String(getDepartmentName(record)).toLowerCase().includes(query) ||
+        String(record.reason || "")
           .toLowerCase()
           .includes(query);
 
       const matchesStatus =
-        statusFilter === "All" ||
-        record.status === statusFilter;
+        statusFilter === "All" || record.status === statusFilter;
 
       const matchesType =
-        typeFilter === "All" ||
-        record.adjustmentType === typeFilter;
+        typeFilter === "All" || record.adjustmentType === typeFilter;
 
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesType
-      );
+      return matchesSearch && matchesStatus && matchesType;
     });
-  }, [
-    adjustments,
-    search,
-    statusFilter,
-    typeFilter,
-  ]);
+  }, [adjustments, search, statusFilter, typeFilter, categoryOptions]);
 
   // -----------------------------------------------------
   // SUMMARY
@@ -295,26 +327,12 @@ const Adjustments = () => {
   ).length;
 
   const quantityIncreased = adjustments
-    .filter(
-      (record) =>
-        record.status === "Approved" &&
-        record.difference > 0,
-    )
-    .reduce(
-      (sum, record) => sum + record.difference,
-      0,
-    );
+    .filter((record) => record.status === "Approved" && record.difference > 0)
+    .reduce((sum, record) => sum + record.difference, 0);
 
   const quantityDecreased = adjustments
-    .filter(
-      (record) =>
-        record.status === "Approved" &&
-        record.difference < 0,
-    )
-    .reduce(
-      (sum, record) => sum + Math.abs(record.difference),
-      0,
-    );
+    .filter((record) => record.status === "Approved" && record.difference < 0)
+    .reduce((sum, record) => sum + Math.abs(record.difference), 0);
 
   // -----------------------------------------------------
   // STATUS STYLE
@@ -438,14 +456,10 @@ const Adjustments = () => {
         remarks: formData.remarks.trim(),
       };
 
-      const response = await api.post(
-        "/adjustments",
-        payload,
-      );
+      const response = await api.post("/adjustments", payload);
 
       toast.success(
-        response.data.message ||
-          "Stock adjustment submitted successfully",
+        response.data.message || "Stock adjustment submitted successfully",
       );
 
       setShowAddModal(false);
@@ -457,8 +471,7 @@ const Adjustments = () => {
       console.error("Create adjustment error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to create stock adjustment",
+        error.response?.data?.message || "Failed to create stock adjustment",
       );
     } finally {
       setSaving(false);
@@ -483,27 +496,20 @@ const Adjustments = () => {
     try {
       setActionLoading(true);
 
-      const response = await api.patch(
-        `/adjustments/${record._id}/approve`,
-      );
+      const response = await api.patch(`/adjustments/${record._id}/approve`);
 
       toast.success(
-        response.data.message ||
-          "Adjustment approved successfully",
+        response.data.message || "Adjustment approved successfully",
       );
 
       setSelectedAdjustment(null);
 
-      await Promise.all([
-        fetchAdjustments(),
-        fetchInventory(),
-      ]);
+      await Promise.all([fetchAdjustments(), fetchInventory()]);
     } catch (error) {
       console.error("Approve adjustment error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to approve adjustment",
+        error.response?.data?.message || "Failed to approve adjustment",
       );
     } finally {
       setActionLoading(false);
@@ -528,13 +534,10 @@ const Adjustments = () => {
     try {
       setActionLoading(true);
 
-      const response = await api.patch(
-        `/adjustments/${record._id}/reject`,
-      );
+      const response = await api.patch(`/adjustments/${record._id}/reject`);
 
       toast.success(
-        response.data.message ||
-          "Adjustment rejected successfully",
+        response.data.message || "Adjustment rejected successfully",
       );
 
       setSelectedAdjustment(null);
@@ -544,8 +547,7 @@ const Adjustments = () => {
       console.error("Reject adjustment error:", error);
 
       toast.error(
-        error.response?.data?.message ||
-          "Failed to reject adjustment",
+        error.response?.data?.message || "Failed to reject adjustment",
       );
     } finally {
       setActionLoading(false);
@@ -572,9 +574,7 @@ const Adjustments = () => {
       <div className="bg-white border border-rose-200 rounded-xl p-8 text-center">
         <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-3" />
 
-        <h2 className="text-lg font-semibold text-slate-900">
-          Access Denied
-        </h2>
+        <h2 className="text-lg font-semibold text-slate-900">Access Denied</h2>
 
         <p className="text-sm text-slate-500 mt-2">
           Only administrators can access stock adjustments.
@@ -668,9 +668,7 @@ const Adjustments = () => {
               <input
                 type="text"
                 value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
+                onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search adjustments..."
                 className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
@@ -679,9 +677,7 @@ const Adjustments = () => {
             <div className="flex flex-col sm:flex-row gap-2">
               <select
                 value={typeFilter}
-                onChange={(event) =>
-                  setTypeFilter(event.target.value)
-                }
+                onChange={(event) => setTypeFilter(event.target.value)}
                 className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
               >
                 <option value="All">All Types</option>
@@ -693,9 +689,7 @@ const Adjustments = () => {
 
               <select
                 value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value)
-                }
+                onChange={(event) => setStatusFilter(event.target.value)}
                 className="w-full sm:w-auto px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700"
               >
                 <option value="All">All Status</option>
@@ -726,9 +720,7 @@ const Adjustments = () => {
                   <th
                     key={heading}
                     className={`px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider ${
-                      heading === "Action"
-                        ? "text-right"
-                        : "text-left"
+                      heading === "Action" ? "text-right" : "text-left"
                     }`}
                   >
                     {heading}
@@ -765,7 +757,7 @@ const Adjustments = () => {
                         </p>
 
                         <p className="text-xs text-slate-400 mt-1">
-                          {record.category || "-"}
+                          {getRecordCategory(record)}
                         </p>
                       </div>
                     </div>
@@ -793,9 +785,7 @@ const Adjustments = () => {
                       {record.difference}
                     </span>
 
-                    <span className="text-xs text-slate-400 ml-2">
-                      units
-                    </span>
+                    <span className="text-xs text-slate-400 ml-2">units</span>
 
                     <p className="text-[11px] text-slate-400 mt-1">
                       {record.previousQuantity} → {record.adjustedQuantity}
@@ -829,9 +819,7 @@ const Adjustments = () => {
                   <td className="px-5 py-4">
                     <div className="flex justify-end">
                       <button
-                        onClick={() =>
-                          setSelectedAdjustment(record)
-                        }
+                        onClick={() => setSelectedAdjustment(record)}
                         className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
                         title="View details"
                       >
@@ -844,9 +832,7 @@ const Adjustments = () => {
             </tbody>
           </table>
 
-          {filteredAdjustments.length === 0 && (
-            <EmptyState />
-          )}
+          {filteredAdjustments.length === 0 && <EmptyState />}
         </div>
 
         {/* MOBILE CARDS */}
@@ -867,6 +853,10 @@ const Adjustments = () => {
 
                     <p className="text-xs text-indigo-600 mt-1">
                       {getAdjustmentId(record)}
+                    </p>
+
+                    <p className="text-xs text-slate-400 mt-1">
+                      {getRecordCategory(record)}
                     </p>
                   </div>
                 </div>
@@ -909,10 +899,7 @@ const Adjustments = () => {
                   }
                 />
 
-                <Info
-                  label="Department"
-                  value={getDepartmentName(record)}
-                />
+                <Info label="Department" value={getDepartmentName(record)} />
 
                 <Info
                   label="Adjustment Date"
@@ -923,17 +910,12 @@ const Adjustments = () => {
                   }
                 />
 
-                <Info
-                  label="Adjusted By"
-                  value={getAdjustedBy(record)}
-                />
+                <Info label="Adjusted By" value={getAdjustedBy(record)} />
               </div>
 
               <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
                 <button
-                  onClick={() =>
-                    setSelectedAdjustment(record)
-                  }
+                  onClick={() => setSelectedAdjustment(record)}
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
                 >
                   <Eye className="w-4 h-4" />
@@ -943,9 +925,7 @@ const Adjustments = () => {
             </div>
           ))}
 
-          {filteredAdjustments.length === 0 && (
-            <EmptyState />
-          )}
+          {filteredAdjustments.length === 0 && <EmptyState />}
         </div>
       </div>
 
@@ -996,7 +976,7 @@ const Adjustments = () => {
                     </h3>
 
                     <p className="text-sm text-slate-500 mt-1">
-                      {selectedAdjustment.category || "-"}
+                      {getRecordCategory(selectedAdjustment)}
                     </p>
                   </div>
                 </div>
@@ -1064,7 +1044,7 @@ const Adjustments = () => {
 
                 <Detail
                   label="Category"
-                  value={selectedAdjustment.category || "-"}
+                  value={getRecordCategory(selectedAdjustment)}
                 />
 
                 <Detail
@@ -1074,9 +1054,7 @@ const Adjustments = () => {
               </div>
 
               <div>
-                <p className="text-xs text-slate-400">
-                  Reason
-                </p>
+                <p className="text-xs text-slate-400">Reason</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
                   {selectedAdjustment.reason}
@@ -1084,9 +1062,7 @@ const Adjustments = () => {
               </div>
 
               <div>
-                <p className="text-xs text-slate-400">
-                  Remarks
-                </p>
+                <p className="text-xs text-slate-400">Remarks</p>
 
                 <p className="text-sm text-slate-700 mt-1 leading-relaxed">
                   {selectedAdjustment.remarks || "-"}
@@ -1100,9 +1076,7 @@ const Adjustments = () => {
               <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap justify-end gap-2">
                 <button
                   disabled={actionLoading}
-                  onClick={() =>
-                    handleRejectAdjustment(selectedAdjustment)
-                  }
+                  onClick={() => handleRejectAdjustment(selectedAdjustment)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-rose-200 bg-white text-rose-600 text-sm font-medium hover:bg-rose-50 disabled:opacity-50"
                 >
                   {actionLoading ? (
@@ -1115,9 +1089,7 @@ const Adjustments = () => {
 
                 <button
                   disabled={actionLoading}
-                  onClick={() =>
-                    handleApproveAdjustment(selectedAdjustment)
-                  }
+                  onClick={() => handleApproveAdjustment(selectedAdjustment)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {actionLoading ? (
@@ -1196,10 +1168,7 @@ const Adjustments = () => {
                       <option value="">Select item</option>
 
                       {inventory.map((item) => (
-                        <option
-                          key={item._id}
-                          value={item._id}
-                        >
+                        <option key={item._id} value={item._id}>
                           {item.name || item.itemName || item.itemCode}
                           {item.itemCode ? ` (${item.itemCode})` : ""}
                         </option>
@@ -1291,10 +1260,7 @@ const Adjustments = () => {
                       <option value="">Select department</option>
 
                       {departments.map((department) => (
-                        <option
-                          key={department._id}
-                          value={department._id}
-                        >
+                        <option key={department._id} value={department._id}>
                           {department.name ||
                             department.departmentName ||
                             department.code}
@@ -1464,13 +1430,7 @@ const Adjustments = () => {
 // SUMMARY CARD
 // -----------------------------------------------------
 
-const SummaryCard = ({
-  title,
-  value,
-  icon: Icon,
-  iconClass,
-  bgClass,
-}) => {
+const SummaryCard = ({ title, value, icon: Icon, iconClass, bgClass }) => {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -1496,18 +1456,12 @@ const SummaryCard = ({
 // MOBILE INFO
 // -----------------------------------------------------
 
-const Info = ({
-  label,
-  value,
-  valueClass = "text-slate-700",
-}) => {
+const Info = ({ label, value, valueClass = "text-slate-700" }) => {
   return (
     <div className="min-w-0">
       <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className={`text-xs mt-1 truncate ${valueClass}`}>
-        {value}
-      </p>
+      <p className={`text-xs mt-1 truncate ${valueClass}`}>{value}</p>
     </div>
   );
 };
@@ -1521,9 +1475,7 @@ const Detail = ({ label, value }) => {
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
       <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className="text-sm font-medium text-slate-800 mt-1">
-        {value}
-      </p>
+      <p className="text-sm font-medium text-slate-800 mt-1">{value}</p>
     </div>
   );
 };
@@ -1532,18 +1484,12 @@ const Detail = ({ label, value }) => {
 // STOCK VALUE
 // -----------------------------------------------------
 
-const StockValue = ({
-  label,
-  value,
-  valueClass = "text-slate-900",
-}) => {
+const StockValue = ({ label, value, valueClass = "text-slate-900" }) => {
   return (
     <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-center">
       <p className="text-[11px] text-slate-400">{label}</p>
 
-      <p className={`text-lg font-semibold mt-1 ${valueClass}`}>
-        {value}
-      </p>
+      <p className={`text-lg font-semibold mt-1 ${valueClass}`}>{value}</p>
     </div>
   );
 };
