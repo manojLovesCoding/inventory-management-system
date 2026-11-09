@@ -248,15 +248,13 @@ const Inventory = () => {
      ADD ITEM
   -------------------------------------------------- */
 
-  const handleAddItem = (newItem) => {
-    if (!newItem) return;
+  const handleAddItem = async () => {
+  setShowAddModal(false);
 
-    setItems((prev) => [newItem, ...prev]);
+  await fetchInventory();
 
-    setShowAddModal(false);
-
-    toast.success("Inventory item added successfully");
-  };
+  toast.success("Inventory item added successfully");
+};
 
   /* --------------------------------------------------
      VIEW ITEM

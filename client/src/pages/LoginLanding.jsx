@@ -1,10 +1,6 @@
 import React from "react";
 import LoginLeftSide from "../components/LoginLeftSide";
-import {
-  ArrowRightIcon,
-  ShieldIcon,
-  Building2Icon,
-} from "lucide-react";
+import { ArrowRightIcon, ShieldIcon, Building2Icon, HeartIcon } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import Loading from "../components/Loading";
 import { useAuth } from "../context/AuthContext";
@@ -25,7 +21,7 @@ const LoginLanding = () => {
       to: "/login/admin",
       title: "Admin Portal",
       description:
-        "Manage users, inventory, procurement, reports, and system settings.",
+        "Manage inventory, stock, purchases, requests, and administration.",
       icon: ShieldIcon,
     },
     {
@@ -82,10 +78,37 @@ const LoginLanding = () => {
             })}
           </div>
 
-          {/* footer */}
-          <div className="mt-12 text-center md:text-left text-sm text-slate-400">
+          {/* footer
+          <div className="mt-12 text-center text-sm text-slate-400">
             <p>
-              © {new Date().getFullYear()} Manoj Kumar. All rights reserved.
+              © {new Date().getFullYear()} Government First Grade College,
+              Raichur.
+              <br />
+              All rights reserved.
+            </p>
+
+            <p className="mt-2">Designed and Developed by Manoj Kumar P V</p>
+          </div> */}
+          <div className="mt-12 text-center text-sm text-slate-400">
+            <p className="text-slate-500">
+              © {new Date().getFullYear()}{" "}
+              <span className="font-semibold text-indigo-600">
+                Government First Grade College
+              </span>
+              , <span className="text-indigo-500">Raichur</span>.
+              <br />
+              <span className="text-slate-400">All rights reserved.</span>
+            </p>
+
+            <p className="mt-3 flex items-center justify-center gap-1 text-xs text-slate-500">
+              Designed & Developed with
+              <span className="text-rose-500">
+                <HeartIcon className="w-3.5 h-3.5 fill-current" />
+              </span>
+              by
+              <span className="font-semibold text-indigo-600">
+                Manoj Kumar P V
+              </span>
             </p>
           </div>
         </div>

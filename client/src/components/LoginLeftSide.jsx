@@ -1,8 +1,4 @@
-import {
-  BoxesIcon,
-  ShieldCheckIcon,
-  PackageCheckIcon,
-} from "lucide-react";
+import { BoxesIcon, ShieldCheckIcon, PackageCheckIcon } from "lucide-react";
 
 const LoginLeftSide = () => {
   return (
@@ -31,15 +27,12 @@ const LoginLeftSide = () => {
 
           <h1 className="text-4xl lg:text-5xl xl:text-6xl font-semibold tracking-tight leading-tight">
             Manage your
-            <span className="block text-indigo-200">
-              inventory smarter.
-            </span>
+            <span className="block text-indigo-200">inventory smarter.</span>
           </h1>
 
           <p className="mt-6 text-indigo-100/80 text-base lg:text-lg leading-relaxed max-w-md">
-            A secure platform for managing inventory,
-            purchases, stock movements, departments,
-            suppliers, and system operations.
+            A secure platform for managing inventory, purchases, stock
+            movements, departments, suppliers, and system operations.
           </p>
         </div>
 
@@ -47,16 +40,11 @@ const LoginLeftSide = () => {
         <div className="mt-10 space-y-4 max-w-md">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center">
-              <ShieldCheckIcon
-                size={20}
-                strokeWidth={1.8}
-              />
+              <ShieldCheckIcon size={20} strokeWidth={1.8} />
             </div>
 
             <div>
-              <p className="font-medium text-white">
-                Secure Access
-              </p>
+              <p className="font-medium text-white">Secure Access</p>
 
               <p className="text-sm text-indigo-100/60">
                 Role-based authentication
@@ -66,30 +54,17 @@ const LoginLeftSide = () => {
 
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center">
-              <PackageCheckIcon
-                size={20}
-                strokeWidth={1.8}
-              />
+              <PackageCheckIcon size={20} strokeWidth={1.8} />
             </div>
 
             <div>
-              <p className="font-medium text-white">
-                Inventory Control
-              </p>
+              <p className="font-medium text-white">Inventory Control</p>
 
               <p className="text-sm text-indigo-100/60">
                 Track and manage stock efficiently
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-12">
-          <p className="text-xs text-indigo-200/60">
-            © {new Date().getFullYear()} Manoj Kumar.
-            All rights reserved.
-          </p>
         </div>
       </div>
     </div>
